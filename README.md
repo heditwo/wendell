@@ -158,6 +158,7 @@ The agent speaks only through these tools.
 | `/model` | Change the model of this conversation, or the server default with `scope`. |
 | `/models` | Show the model of this conversation and the server default. Only you see the answer. |
 | `/auto` | Show or set the approval mode of this conversation. |
+| `/busy` | What happens when you message Wendell while he works. `interrupt` (default): he reads it at his next step; if he has not read it after 15 seconds, his current step is interrupted. `steer`: at his next step, never interrupted. `wait`: after he finishes. Without a mode, shows the current one. |
 | `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. Only you see the answer. |
 
 ## Models
@@ -289,6 +290,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Pick a fast one, because chat should feel quick. `/model` can override it (see [Models](#models)). |
 | `servers.<name>.blockedProviders` | Provider IDs that Wendell must never use on this server, for example `["anthropic"]` for a work account. Wendell skips their models when he selects a model, refuses them in `/model` and `wendell_set_model`, and moves existing sessions off them. With blocked providers, set `servers.<name>.model`, because the agent's default could use a blocked provider. Subagents with their own model in the OpenCode config ignore this rule; `bun run doctor` warns about them. |
 | `servers.<name>.allow` | Permission actions that need no approval, such as `"browse_*"`. Shell commands always go through approvals. |
+| `servers.<name>.busy` | Busy mode for conversations without their own: `"interrupt"` (default), `"steer"` or `"wait"`. |
 | `servers.<name>.approvals` | Approval mode for conversations without their own: `"review"` (default), `"auto"` or `"off"`. |
 | `channels.<id>.server` | OpenCode server for this channel. |
 | `channels.<id>.goal.wakeWhen` | What Wendell listens for without being addressed. |
@@ -303,6 +305,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | Wendell's voice and rules | `persona.md` |
 | What Wendell listens for | `goal.wakeWhen` in `wendell.json` |
 | How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
+| How long a message waits before it interrupts Wendell (`/busy interrupt`) | `WENDELL_INTERRUPT_AFTER` (default `15 seconds`) |
 | How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |

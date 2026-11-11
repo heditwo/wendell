@@ -3,6 +3,7 @@ import { Layer } from "effect"
 import { Activity } from "./Activity.ts"
 import { ApprovalModes } from "./ApprovalModes.ts"
 import { Approvals } from "./Approvals.ts"
+import { BusyModes } from "./BusyModes.ts"
 import { Commands } from "./Commands.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
@@ -29,7 +30,7 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, Media.layer, Transcriber.layer, Profile.layer).pipe(
+const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, BusyModes.layer, Media.layer, Transcriber.layer, Profile.layer).pipe(
   Layer.provideMerge(Models.layer),
 )
 

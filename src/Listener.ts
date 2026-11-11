@@ -11,6 +11,7 @@ import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
 import { Transcriber } from "./Transcriber.ts"
+import { BusyModes } from "./BusyModes.ts"
 import { Settings } from "./Settings.ts"
 
 const MAX_BATCH = 20
@@ -33,6 +34,7 @@ export const layer = Layer.effectDiscard(
     const recent = yield* Recent.Service
     const media = yield* Media.Service
     const transcriber = yield* Transcriber.Service
+    const busyModes = yield* BusyModes.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -107,6 +109,8 @@ export const layer = Layer.effectDiscard(
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
           trigger,
+          // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
+          busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
         },
         routed.flatMap(({ files }) => Media.images(files)),
       )

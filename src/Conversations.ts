@@ -58,6 +58,8 @@ export interface Turn {
   /** Show 👀, typing and a live status line while Wendell works. */
   readonly progress: boolean
   readonly trigger: Option.Option<{ readonly channelId: ChannelId; readonly messageId: MessageId }>
+  /** How to deliver while a turn is running. Default: `wait`, for Wendell's own hand-offs and reports. */
+  readonly busy?: WendellConfig.BusyMode | undefined
 }
 
 export class ConversationError extends Schema.TaggedError<ConversationError>()("Conversations.ConversationError", {
@@ -614,6 +616,27 @@ export const layer = Layer.effect(
       { discard: true },
     )
 
+    // A steered message is read at the agent's next step. A long command or a long model step can delay that,
+    // so after a short wait the running step is interrupted and the steered message runs next.
+    const interruptIfUnread = Effect.fn("Conversations.interruptIfUnread")(function* (
+      conversation: Conversation,
+      sessionID: Session.ID,
+      inboxID: SessionMessage.ID,
+    ) {
+      yield* Effect.sleep(settings.interruptAfter)
+
+      const inbox = yield* conversation.remote.client.session.inbox.list({ sessionID })
+
+      if (!inbox.some((item) => item.id === inboxID)) return
+
+      const { interrupted } = yield* conversation.remote.client.session.interrupt({ sessionID, resume: true })
+
+      if (!interrupted) return
+
+      yield* Effect.logInfo("Interrupted a turn for a new message", { server: conversation.remote.name, channelId: conversation.channelId })
+      yield* discord.send(conversation.channelId, "-# Stopped to read your message.", Option.none()).pipe(Effect.ignore)
+    }, Effect.catch((cause) => Effect.logWarning("Could not interrupt for a new message", { cause })))
+
     const deliver = Effect.fn("Conversations.deliver")(
       function* (conversation: Conversation, text: string, turn: Turn, images: ReadonlyArray<AbsolutePath> = []) {
         const sessionID = yield* ensure(conversation)
@@ -629,13 +652,17 @@ export const layer = Layer.effect(
           Effect.forkIn(scope),
         )
         yield* Deferred.await(ready).pipe(Effect.timeout(Duration.seconds(10)), Effect.ignore)
+        const busy = turn.busy ?? "wait"
+
         yield* conversation.remote.client.session.prompt({
           sessionID,
           id: inboxID,
           text,
           files: images.length === 0 ? undefined : images.map((image) => ({ uri: pathToFileURL(image).href, name: path.basename(image) })),
-          delivery: "queue",
+          delivery: busy === "wait" ? "queue" : "steer",
         })
+
+        if (busy === "interrupt") yield* interruptIfUnread(conversation, sessionID, inboxID).pipe(Effect.forkIn(scope))
       },
       (effect, conversation) => conversationError("Conversations.deliver", conversation)(effect),
     )

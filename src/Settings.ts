@@ -10,6 +10,7 @@ export interface Interface {
   readonly decisionModel: Model.Ref
   readonly skipBelow: number
   readonly approveAbove: number
+  readonly interruptAfter: Duration.Duration
   readonly batchWindow: Duration.Duration
   readonly followWindow: Duration.Duration
   /** People's time zone for reminders, unless they name another one. */
@@ -45,6 +46,7 @@ export const config = Config.all({
   decisionModel: Config.String("WENDELL_DECISION_MODEL").pipe(Config.withDefault("opencode/jev-1.13")),
   skipBelow: Config.Number("WENDELL_SKIP_BELOW").pipe(Config.withDefault(0.2)),
   approveAbove: Config.Number("WENDELL_APPROVE_ABOVE").pipe(Config.withDefault(0.6)),
+  interruptAfter: Config.Duration("WENDELL_INTERRUPT_AFTER").pipe(Config.withDefault(Duration.seconds(15))),
   batchWindow: Config.Duration("WENDELL_BATCH_WINDOW").pipe(Config.withDefault(Duration.seconds(3))),
   followWindow: Config.Duration("WENDELL_FOLLOW_WINDOW").pipe(Config.withDefault(Duration.minutes(10))),
   timeZone: Config.String("WENDELL_TIME_ZONE").pipe(Config.withDefault("America/New_York")),

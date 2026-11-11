@@ -18,12 +18,24 @@ export const ApprovalMode = Schema.Literals(["off", "review", "auto"])
 
 export type ApprovalMode = typeof ApprovalMode.Type
 
+/**
+ * What happens to a message for Wendell while he is still working:
+ * - `interrupt`: he reads it at his next step; if he has not read it after a short time, his work is interrupted.
+ * - `steer`: he reads it at his next step, without an interrupt.
+ * - `wait`: it waits until his current turn ends.
+ */
+export const BusyMode = Schema.Literals(["interrupt", "steer", "wait"])
+
+export type BusyMode = typeof BusyMode.Type
+
 export const ServerPrefs = Schema.Struct({
   agent: Schema.optional(Schema.NonEmptyString),
   model: Schema.optional(Schema.NonEmptyString),
   allow: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   /** Approval mode for conversations without their own. Default: `review`. */
   approvals: Schema.optional(ApprovalMode),
+  /** Busy mode for conversations without their own. Default: `interrupt`. */
+  busy: Schema.optional(BusyMode),
   /** Provider IDs that Wendell must never use on this server, such as a work account. */
   blockedProviders: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 })

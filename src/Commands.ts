@@ -1,6 +1,7 @@
 import type { OpenCodeClient } from "@opencode/client/effect"
 import { DateTime, Effect, Layer, Option, Schema, Stream } from "effect"
 import { ApprovalModes } from "./ApprovalModes.ts"
+import { BusyModes } from "./BusyModes.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
@@ -40,6 +41,23 @@ const specs: ReadonlyArray<Discord.CommandSpec> = [
           { name: "review: approve what clearly fits the request, ask about the rest", value: "review" },
           { name: "auto: approve everything", value: "auto" },
           { name: "off: always ask", value: "off" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "busy",
+    description: "Choose what happens when you message Wendell while he works. Without a mode, show the current one.",
+    options: [
+      {
+        name: "mode",
+        description: "How new messages reach Wendell while he works in this conversation.",
+        required: false,
+        autocomplete: false,
+        choices: [
+          { name: "interrupt: he reads it at his next step, and is interrupted if that takes too long", value: "interrupt" },
+          { name: "steer: he reads it at his next step, never interrupted", value: "steer" },
+          { name: "wait: it waits until he is done", value: "wait" },
         ],
       },
     ],
@@ -95,6 +113,15 @@ const modeMeaning: Record<ApprovalModes.Mode, string> = {
   auto: "I approve every request without asking.",
 }
 
+const isBusyMode = Schema.is(BusyModes.Mode)
+
+const describeBusy = (mode: BusyModes.Mode) =>
+  ({
+    interrupt: "**interrupt**. I read new messages at my next step. If that takes longer than a few seconds, I stop what I am doing and read yours.",
+    steer: "**steer**. I read new messages at my next step, and never stop a step for them.",
+    wait: "**wait**. New messages wait until I finish what I am doing.",
+  })[mode]
+
 const describeMode = (mode: ApprovalModes.Mode) =>
   `**${mode}**. ${modeMeaning[mode]} Reading \`.env\` files always needs a person.`
 
@@ -117,6 +144,7 @@ export const layer = Layer.effectDiscard(
     const conversations = yield* Conversations.Service
     const fleet = yield* Fleet.Service
     const approvalModes = yield* ApprovalModes.Service
+    const busyModes = yield* BusyModes.Service
 
     const describe = Effect.fn("Commands.describe")(function* (place: Places.Place, model: Option.Option<string>) {
       if (Option.isNone(model)) return "the agent's default"
@@ -173,6 +201,31 @@ export const layer = Layer.effectDiscard(
       }).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("Could not show the models", { cause }).pipe(Effect.as("I could not read the models. Try again.")),
+        ),
+      )
+
+      yield* discord.editCommandAnswer(call, answer)
+    })
+
+    const busy = Effect.fn("Commands.busy")(function* (call: Discord.CommandCall) {
+      const requested = Option.filter(option(call, "mode"), isBusyMode)
+
+      yield* discord.deferCommand(call, Option.isNone(requested))
+
+      const answer = yield* Effect.gen(function* () {
+        const place = yield* places.forOrigin(origin(call))
+        const { remote, channelId } = place.conversation
+
+        if (Option.isNone(requested)) {
+          return `While I work here: ${describeBusy(yield* busyModes.modeFor(remote, channelId))}`
+        }
+
+        yield* busyModes.set(channelId, requested.value)
+
+        return `While I work here: ${describeBusy(requested.value)}`
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not change the busy mode", { cause }).pipe(Effect.as("I could not change the busy mode. Try again.")),
         ),
       )
 
@@ -254,6 +307,8 @@ export const layer = Layer.effectDiscard(
       if (call.name === "model") return changeModel(call)
 
       if (call.name === "auto") return approvals(call)
+
+      if (call.name === "busy") return busy(call)
 
       if (call.name === "models") return showModels(call)
 
