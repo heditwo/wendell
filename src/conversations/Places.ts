@@ -1,7 +1,7 @@
 import { AbsolutePath } from "@opencode/client/effect"
 import { Context, Effect, Layer, Option } from "effect"
 import path from "node:path"
-import type { Conversations } from "./Conversations.ts"
+import type { Conversation } from "./Conversation.ts"
 import { Discord } from "../discord/Discord.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
@@ -10,7 +10,7 @@ import { Tasks } from "../tasks/Tasks.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 
 export interface Place {
-  readonly conversation: Conversations.Conversation
+  readonly conversation: Conversation
   readonly goal: Option.Option<WendellConfig.Goal>
   readonly isThread: boolean
   readonly task: Option.Option<Tasks.Task>
@@ -27,7 +27,7 @@ export interface Origin {
 export interface Interface {
   readonly forMessage: (message: Inbound.Message) => Effect.Effect<Place, Fleet.ServerRequestError>
   readonly forOrigin: (origin: Origin) => Effect.Effect<Place, Fleet.ServerRequestError>
-  readonly forTask: (task: Tasks.Task) => Conversations.Conversation
+  readonly forTask: (task: Tasks.Task) => Conversation
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Places") {}
@@ -64,7 +64,7 @@ export const layer = Layer.effect(
           }),
       })
 
-    const forTask = (task: Tasks.Task): Conversations.Conversation => ({
+    const forTask = (task: Tasks.Task): Conversation => ({
       kind: "task",
       channelId: task.threadId,
       guildId: Option.fromUndefinedOr(task.guildId),
