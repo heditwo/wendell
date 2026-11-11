@@ -1,0 +1,26 @@
+{
+  "owners": ["111111111111111111"],
+  "defaultAccess": "everyone",
+  "guilds": {
+    "222222222222222222": { "access": "administrators" },
+    "333333333333333333": { "access": { "role": "444444444444444444" } }
+  },
+  "defaultServer": "omarchy",
+  "servers": {
+    "omarchy": {
+      "model": "anthropic/claude-sonnet-5-5",
+      "allow": ["browse_*"]
+    }
+  },
+  "channels": {
+    "123456789012345678": {
+      "goal": {
+        "wakeWhen": "Someone asks a technical question that nobody has answered yet. Not social chat, announcements, or questions for a named person.",
+        "engagement": "Give a short, specific answer. Link a source when you use one. Say so when you are not sure."
+      }
+    },
+    "234567890123456789": {
+      "server": "laptop"
+    }
+  }
+}

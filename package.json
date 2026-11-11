@@ -1,0 +1,27 @@
+{
+  "name": "wendell",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "pair": "bun src/pair.ts",
+    "unpair": "bun src/unpair.ts",
+    "doctor": "bun src/doctor.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "check": "bun run typecheck && bun run lint"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.1.0",
+    "@opencode/client": "2.2.7",
+    "dfx": "1.1.1",
+    "effect": "4.1.0"
+  },
+  "devDependencies": {
+    "@effect/language-service": "0.87.5",
+    "@oxlint/plugins": "1.93.0",
+    "@types/bun": "1.4.4",
+    "oxlint": "1.93.0",
+    "typescript": "6.0.3"
+  }
+}
