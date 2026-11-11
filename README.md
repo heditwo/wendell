@@ -351,4 +351,23 @@ Changes to `persona.md`, `model` and `allow` reach existing sessions after a res
 bun run check
 ```
 
-`AGENTS.md` describes the conventions for coding agents.
+The code is in `src/`, with one folder for each area:
+
+| Folder | Contents |
+| --- | --- |
+| `main.ts` | Connects all the parts. Wendell starts here. |
+| `cli/` | `bun run doctor`, `bun run pair` and `bun run unpair`. |
+| `config/` | Settings from the environment, `wendell.json` and the paired servers. |
+| `shared/` | IDs, the JSON files in `.data/`, and small helpers. |
+| `discord/` | The connection to Discord: messages, slash commands, buttons and Wendell's profile. |
+| `discord/commands/` | One file for each slash command. |
+| `inbound/` | Incoming messages: routing, the screen, attachments and voice messages. |
+| `conversations/` | Sessions, the context of each conversation, and the turn watcher (👀, typing, status line). |
+| `opencode/` | The connection to the OpenCode servers, models and permissions. |
+| `tools/` | Wendell's Discord tools for the agent, and one handler file for each group of tools. |
+| `tasks/` | Task threads and sub-tasks. |
+| `approvals/` | Permission requests and the reviewer. |
+| `modes/` | The approval mode and the busy mode of each conversation. |
+| `memory/` | Notes about people and servers. |
+
+`AGENTS.md` describes the conventions and the architecture for coding agents.
