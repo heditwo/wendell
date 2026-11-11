@@ -5,7 +5,7 @@ import { Access } from "./Access.ts"
 import type { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
-import type { ChannelId } from "./Ids.ts"
+import type { ChannelId, GuildId, UserId } from "./Ids.ts"
 import { Inbound } from "./Inbound.ts"
 import { Tasks } from "./Tasks.ts"
 import { WendellConfig } from "./WendellConfig.ts"
@@ -17,8 +17,18 @@ export interface Place {
   readonly task: Option.Option<Tasks.Task>
 }
 
+/** Where something happened in Discord, and who did it. */
+export interface Origin {
+  readonly channelId: ChannelId
+  readonly guildId: Option.Option<GuildId>
+  readonly member: Access.Member
+  readonly authorId: UserId
+  readonly authorName: string
+}
+
 export interface Interface {
   readonly forMessage: (message: Inbound.Message) => Effect.Effect<Place, Fleet.ServerRequestError>
+  readonly forOrigin: (origin: Origin) => Effect.Effect<Place, Fleet.ServerRequestError>
   readonly forTask: (task: Tasks.Task) => Conversations.Conversation
 }
 
@@ -67,17 +77,17 @@ export const layer = Layer.effect(
       title: task.title,
     })
 
-    const forMessage = Effect.fn("Places.forMessage")(function* (message: Inbound.Message) {
+    const forOrigin = Effect.fn("Places.forOrigin")(function* (message: Origin) {
       const task = yield* tasks.get(message.channelId)
 
       if (Option.isSome(task)) {
         return { conversation: forTask(task.value), goal: Option.none(), isThread: true, task }
       }
 
-      if (Inbound.isDirect(message)) {
+      if (Option.isNone(message.guildId)) {
         const remote = fleet.fallback
         const directory = AbsolutePath.make(path.join(remote.directory, `dm-${message.authorId}`))
-        const trusted = yield* access.trusted(Inbound.member(message))
+        const trusted = yield* access.trusted(message.member)
 
         yield* fleet.makeDirectory(remote, directory)
 
@@ -130,7 +140,16 @@ export const layer = Layer.effect(
       } satisfies Place
     })
 
-    return Service.of({ forMessage, forTask })
+    const forMessage = (message: Inbound.Message) =>
+      forOrigin({
+        channelId: message.channelId,
+        guildId: message.guildId,
+        member: Inbound.member(message),
+        authorId: message.authorId,
+        authorName: message.authorName,
+      })
+
+    return Service.of({ forMessage, forOrigin, forTask })
   }),
 )
 

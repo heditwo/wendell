@@ -8,8 +8,9 @@
   "defaultServer": "omarchy",
   "servers": {
     "omarchy": {
-      "model": "anthropic/claude-sonnet-5-5",
-      "allow": ["browse_*"]
+      "model": "opencode/claude-sonnet-5-5",
+      "allow": ["browse_*"],
+      "blockedProviders": ["openai"]
     }
   },
   "channels": {

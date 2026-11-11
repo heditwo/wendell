@@ -16,7 +16,9 @@ const ReactArgs = Schema.Struct({
 })
 
 const StartTaskArgs = Schema.Struct({
-  message_id: MessageId.annotate({ description: "ID of the message that asked for the work. The thread starts from it." }),
+  message_id: Schema.optional(MessageId).annotate({
+    description: "In a channel (required): ID of the message that asked for the work. The thread starts from it. Omit it in a task thread.",
+  }),
   title: Schema.NonEmptyString.annotate({ description: "Short thread name, for example \"Todo app\"." }),
   brief: Schema.NonEmptyString.annotate({
     description: "What to do, with everything relevant from this conversation. The task starts with this brief.",
@@ -34,6 +36,15 @@ const UpdateTaskArgs = Schema.Struct({
     description: "One or two sentences: what this task is and where it stands, including links you shared.",
   }),
   status: Schema.optional(Schema.Literals(["active", "done"])),
+})
+
+const SetModelArgs = Schema.Struct({
+  model: Schema.NonEmptyString.annotate({
+    description: 'Model as "provider/model", with an optional "#variant", for example "anthropic-personal/claude-haiku-4-5".',
+  }),
+  scope: Schema.optional(Schema.Literals(["conversation", "default"])).annotate({
+    description: '"conversation" (default): this conversation only. "default": new conversations on this server.',
+  }),
 })
 
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
@@ -90,10 +101,18 @@ export const make = (
     ),
     tool(
       "start_task",
-      "Move real work (building, changing or investigating something over several steps) into its own Discord thread " +
-        "with its own project directory. Use it in a channel, not in a task thread or a DM. After it succeeds, do not reply in the channel.",
+      "In a channel: move real work (building, changing or investigating something over several steps) into its own Discord thread " +
+        "with its own project directory. After it succeeds, do not reply in the channel. " +
+        "In a task thread: start a sub-task for a large, independent part of the work, in a new thread. " +
+        "It gets a git worktree when the task directory is in a git repository; otherwise it shares the task directory. " +
+        "When the sub-task calls update_task with status \"done\", its result is reported back to this task. Not available in DMs.",
       StartTaskArgs,
-      (input) => ToolCalls.Call.StartTask({ messageId: input.message_id, title: input.title, brief: input.brief }),
+      (input) =>
+        ToolCalls.Call.StartTask({
+          messageId: Option.fromUndefinedOr(input.message_id),
+          title: input.title,
+          brief: input.brief,
+        }),
     ),
     tool(
       "continue_task",
@@ -110,13 +129,22 @@ export const make = (
     tool(
       "update_task",
       "In a task thread: record what the task is and where it stands, so you can find it again later. " +
-        "Call it after meaningful progress, and with status \"done\" when the work is finished.",
+        "Call it after meaningful progress, and with status \"done\" when the work is finished. " +
+        "In a sub-task, status \"done\" reports the summary to the parent task.",
       UpdateTaskArgs,
       (input) =>
         ToolCalls.Call.UpdateTask({
           summary: Option.fromUndefinedOr(input.summary),
           status: Option.fromUndefinedOr(input.status),
         }),
+    ),
+    tool(
+      "set_model",
+      "Change the model that answers in this conversation, or the default model for new conversations on this server. " +
+        "Use it when someone asks for another model. If the model is unknown, the error lists close matches. " +
+        "A change of this conversation applies from your next turn.",
+      SetModelArgs,
+      (input) => ToolCalls.Call.SetModel({ model: input.model, scope: input.scope ?? "conversation" }),
     ),
   ]
 }

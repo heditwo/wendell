@@ -1,4 +1,4 @@
-import { type AbsolutePath, Agent, type Session, SessionMessage } from "@opencode/client/effect"
+import { type AbsolutePath, Agent, type Model, type Session, SessionMessage } from "@opencode/client/effect"
 import {
   Clock,
   Context,
@@ -19,11 +19,13 @@ import { Activity } from "./Activity.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import type { ChannelId, GuildId, MessageId } from "./Ids.ts"
+import { Models } from "./Models.ts"
 import { Policy } from "./Policy.ts"
 import { Progress } from "./Progress.ts"
 import { SessionKey } from "./SessionKey.ts"
 import { Settings } from "./Settings.ts"
 import { Tasks } from "./Tasks.ts"
+import { WendellConfig } from "./WendellConfig.ts"
 
 const PERSONA_KEY = "wendell"
 const CONTEXT_KEY = "wendell-conversation"
@@ -69,6 +71,10 @@ export interface Interface {
   readonly forSession: (server: string, sessionID: string) => Effect.Effect<Option.Option<Conversation>>
   /** Wendell's session at the top of a subagent tree, or none when the session is not Wendell's. */
   readonly rootOf: (remote: Fleet.Remote, sessionID: string) => Effect.Effect<Option.Option<string>>
+  /** Remembers the model for this conversation and switches its session, if it has one yet. */
+  readonly setModel: (conversation: Conversation, model: Models.Resolved) => Effect.Effect<void, ConversationError>
+  /** The session's model, or the model that a new session would get. None means the agent's default. */
+  readonly currentModel: (conversation: Conversation) => Effect.Effect<Option.Option<string>, ConversationError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Conversations") {}
@@ -82,18 +88,37 @@ const conversationError =
         new ConversationError({ operation, server: conversation.remote.name, channelId: conversation.channelId, cause }),
     )
 
+export const formatModel = (model: Model.Ref) =>
+  `${model.providerID}/${model.id}${model.variant === undefined || model.variant === "default" ? "" : `#${model.variant}`}`
+
 const formatDate = (time: number) => new Date(time).toISOString().slice(0, 10)
 
-const describeTasks = (tasks: ReadonlyArray<Tasks.Task>) =>
-  tasks.length === 0
-    ? "There are no tasks yet."
-    : tasks
-        .map(
-          (task) =>
-            `- <#${task.threadId}> thread_id=${task.threadId} "${task.title}" (${task.status}, started by ${task.createdByName}, ` +
-            `last active ${formatDate(task.lastActivity)}, directory ${task.directory}): ${task.summary}`,
-        )
-        .join("\n")
+const describeTask = (task: Tasks.Task) =>
+  `<#${task.threadId}> thread_id=${task.threadId} "${task.title}" (${task.status}, started by ${task.createdByName}, ` +
+  `last active ${formatDate(task.lastActivity)}, directory ${task.directory}): ${task.summary}`
+
+const describeTasks = (tasks: ReadonlyArray<Tasks.Task>) => {
+  if (tasks.length === 0) return "There are no tasks yet."
+
+  const listed = new Set(tasks.map((task) => task.threadId))
+
+  const isTop = (task: Tasks.Task) => task.parentTaskId === undefined || !listed.has(task.parentTaskId)
+
+  const lines = (task: Tasks.Task, depth: number): ReadonlyArray<string> => [
+    `${"  ".repeat(depth)}- ${describeTask(task)}` +
+      (depth === 0 && task.parentTaskId !== undefined ? ` (sub-task of <#${task.parentTaskId}>)` : ""),
+    ...tasks.filter((child) => child.parentTaskId === task.threadId).flatMap((child) => lines(child, depth + 1)),
+  ]
+
+  return tasks
+    .filter(isTop)
+    .flatMap((task) => lines(task, 0))
+    .join("\n")
+}
+
+const describeSubtask = (task: Tasks.Task) =>
+  `- <#${task.threadId}> thread_id=${task.threadId} "${task.title}" (${task.status}, directory ${task.directory}` +
+  `${task.branch === undefined ? "" : `, branch ${task.branch}`}): ${task.summary}`
 
 export const layer = Layer.effect(
   Service,
@@ -104,6 +129,8 @@ export const layer = Layer.effect(
     const activity = yield* Activity.Service
     const tasks = yield* Tasks.Service
     const fleet = yield* Fleet.Service
+    const models = yield* Models.Service
+    const config = yield* WendellConfig.Service
     const scope = yield* Effect.scope
     const persona = yield* fs.readFileString(settings.personaFile).pipe(Effect.orDie)
     const prepared = yield* Ref.make(HashMap.empty<string, Conversation>())
@@ -139,10 +166,24 @@ export const layer = Layer.effect(
       `${conversation.remote.name}/${SessionKey.forChannel(conversation.channelId)}`
 
     const contextFor = Effect.fn("Conversations.contextFor")(function* (conversation: Conversation) {
-      const where = `This conversation is in Discord <#${conversation.channelId}>. Your working directory is ${conversation.directory}.`
+      const model = Option.match(yield* models.chosen(conversation.remote, conversation.channelId), {
+        onNone: () => "the agent's default model",
+        onSome: (ref) => ref,
+      })
+
+      const where = [
+        `This conversation is in Discord <#${conversation.channelId}>. Your working directory is ${conversation.directory}.`,
+        `Your model here: ${model}. When someone asks for another model, use set_model.`,
+      ].join("\n")
 
       if (conversation.kind === "task") {
         const task = yield* tasks.get(conversation.channelId)
+        const subtasks = yield* tasks.subtasks(conversation.channelId)
+
+        const parent = yield* Option.match(Option.flatMap(task, (current) => Option.fromUndefinedOr(current.parentTaskId)), {
+          onNone: () => Effect.succeed(Option.none<Tasks.Task>()),
+          onSome: tasks.get,
+        })
 
         return [
           where,
@@ -154,10 +195,24 @@ export const layer = Layer.effect(
               `What you recorded so far: ${current.summary}`,
             ],
           }),
+          ...Option.match(parent, {
+            onNone: () => [],
+            onSome: (owner) => [
+              `This is a sub-task of <#${owner.threadId}> "${owner.title}": ${owner.summary}`,
+              Option.exists(task, (current) => current.directory === owner.directory)
+                ? "You share the directory with the parent task. Only touch what your brief assigns you."
+                : "You work in your own git worktree. Commit your work on your branch so the parent task can merge it.",
+              'When you call update_task with status "done", your summary is reported to the parent task automatically.',
+            ],
+          }),
           conversation.tier === "trusted"
             ? "You can edit files and run commands in your working directory. For long-running processes such as dev servers or tunnels, use background shell jobs."
             : "The person who started this task cannot approve edits or commands, so this task is read-only.",
           "Keep the task record current with update_task after meaningful progress.",
+          "For a large, independent part of the work, call start_task without message_id to start a sub-task in its own thread.",
+          ...(subtasks.length === 0
+            ? []
+            : ["Sub-tasks of this task, oldest first. They report here when they are done:", ...subtasks.map(describeSubtask)]),
         ].join("\n")
       }
 
@@ -188,6 +243,33 @@ export const layer = Layer.effect(
       (effect, conversation) => conversationError("Conversations.exists", conversation)(effect),
     )
 
+    const pickModel = (conversation: Conversation) =>
+      models.pick(conversation.remote, conversation.channelId).pipe(
+        Effect.tapErrorTag("Models.NoAllowedModel", (error) =>
+          Effect.logError(error.message, { channelId: conversation.channelId }),
+        ),
+      )
+
+    // Sessions from older versions, or changed by hand, can be on a provider that is now blocked.
+    const unblock = Effect.fn("Conversations.unblock")(function* (conversation: Conversation, sessionID: Session.ID) {
+      const { remote } = conversation
+      const session = yield* remote.client.session.get({ sessionID })
+      const current = Option.fromUndefinedOr(session.model).pipe(Option.map(formatModel))
+
+      if (!Option.exists(current, (model) => WendellConfig.isBlocked(remote.prefs, model))) return
+
+      const next = yield* pickModel(conversation)
+
+      if (Option.isNone(next)) return
+
+      yield* remote.client.session.switchModel({ sessionID, model: next.value })
+      yield* Effect.logWarning("Moved a session off a blocked provider", {
+        server: remote.name,
+        channelId: conversation.channelId,
+        model: formatModel(next.value),
+      })
+    })
+
     // Permissions and persona are refreshed once per process; the conversation context whenever it changes.
     const prepare = Effect.fn("Conversations.prepare")(function* (conversation: Conversation, sessionID: Session.ID) {
       const key = sessionKey(conversation)
@@ -197,8 +279,11 @@ export const layer = Layer.effect(
         yield* client.session.update({
           sessionID,
           permissions: Policy.sessionPermissions(conversation.tier, conversation.remote.prefs.allow ?? []),
+          // Also hides sessions that older versions of Wendell created.
+          archived: config.hideSessions ? true : undefined,
         })
         yield* client.experimental.session.instructions.entry.put({ sessionID, key: PERSONA_KEY, value: persona })
+        yield* unblock(conversation, sessionID)
         yield* Ref.update(prepared, HashMap.set(key, conversation))
       }
 
@@ -217,10 +302,7 @@ export const layer = Layer.effect(
       yield* fleet.attach(remote, conversation.directory)
 
       if (!(yield* exists(conversation))) {
-        const model = yield* Option.match(Option.fromUndefinedOr(remote.prefs.model), {
-          onNone: () => Effect.succeed(undefined),
-          onSome: (value) => Settings.parseModelRef(`servers.${remote.name}.model`, value),
-        })
+        const model = Option.getOrUndefined(yield* pickModel(conversation))
 
         yield* remote.client.session.create({
           id: sessionID,
@@ -234,6 +316,8 @@ export const layer = Layer.effect(
           metadata: { discordChannelId: conversation.channelId, client: Policy.CLIENT_NAME, kind: conversation.kind },
           permissions: Policy.sessionPermissions(conversation.tier, remote.prefs.allow ?? []),
         })
+
+        if (config.hideSessions) yield* remote.client.session.update({ sessionID, archived: true })
 
         yield* Effect.logInfo("Started conversation", {
           server: remote.name,
@@ -434,7 +518,42 @@ export const layer = Layer.effect(
       return HashMap.get(yield* Ref.get(prepared), `${server}/${sessionID}`)
     })
 
-    return Service.of({ exists, deliver, forSession, rootOf })
+    const setModel = Effect.fn("Conversations.setModel")(
+      function* (conversation: Conversation, model: Models.Resolved) {
+        yield* models.setConversation(conversation.remote, conversation.channelId, model.id)
+
+        if (!(yield* exists(conversation))) return
+
+        yield* conversation.remote.client.session.switchModel({
+          sessionID: SessionKey.forChannel(conversation.channelId),
+          model: model.ref,
+        })
+        yield* Effect.logInfo("Switched model", {
+          server: conversation.remote.name,
+          channelId: conversation.channelId,
+          model: model.id,
+        })
+      },
+      (effect, conversation) => conversationError("Conversations.setModel", conversation)(effect),
+    )
+
+    const currentModel = Effect.fn("Conversations.currentModel")(
+      function* (conversation: Conversation) {
+        const session = yield* conversation.remote.client.session
+          .get({ sessionID: SessionKey.forChannel(conversation.channelId) })
+          .pipe(
+            Effect.map(Option.some),
+            Effect.catchTag("SessionNotFoundError", () => Effect.succeed(Option.none<Session.Info>())),
+          )
+
+        const live = Option.flatMap(session, (info) => Option.fromUndefinedOr(info.model)).pipe(Option.map(formatModel))
+
+        return Option.isSome(live) ? live : yield* models.chosen(conversation.remote, conversation.channelId)
+      },
+      (effect, conversation) => conversationError("Conversations.currentModel", conversation)(effect),
+    )
+
+    return Service.of({ exists, deliver, forSession, rootOf, setModel, currentModel })
   }),
 )
 

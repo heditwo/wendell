@@ -3,10 +3,12 @@ import { Layer } from "effect"
 import { Access } from "./Access.ts"
 import { Activity } from "./Activity.ts"
 import { Approvals } from "./Approvals.ts"
+import { Commands } from "./Commands.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import { Listener } from "./Listener.ts"
+import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
 import { Screen } from "./Screen.ts"
@@ -23,9 +25,14 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Access.layer).pipe(Layer.provideMerge(Layer.mergeAll(Conversations.layer, Screen.layer)))
+const Domain = Layer.mergeAll(Access.layer).pipe(
+  Layer.provideMerge(Layer.mergeAll(Conversations.layer, Screen.layer)),
+  Layer.provideMerge(Models.layer),
+)
 
-const Workers = Layer.mergeAll(Listener.layer, ToolWorker.layer, Approvals.layer).pipe(Layer.provide(Places.layer))
+const Workers = Layer.mergeAll(Listener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
+  Layer.provide(Places.layer),
+)
 
 const Main = Workers.pipe(
   Layer.provide(Domain),

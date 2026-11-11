@@ -13,6 +13,8 @@ export const ServerPrefs = Schema.Struct({
   agent: Schema.optional(Schema.NonEmptyString),
   model: Schema.optional(Schema.NonEmptyString),
   allow: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  /** Provider IDs that Wendell must never use on this server, such as a work account. */
+  blockedProviders: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 })
 
 export interface ServerPrefs extends Schema.Schema.Type<typeof ServerPrefs> {}
@@ -40,6 +42,7 @@ export interface Guild extends Schema.Schema.Type<typeof Guild> {}
 
 export const File = Schema.Struct({
   defaultServer: Schema.optional(ServerName),
+  hideSessions: Schema.optional(Schema.Boolean),
   owners: Schema.optional(Schema.Array(UserId)),
   defaultAccess: Schema.optional(Access),
   guilds: Schema.optional(
@@ -63,6 +66,8 @@ export interface File extends Schema.Schema.Type<typeof File> {}
 
 export interface Interface {
   readonly defaultServer: Option.Option<ServerName>
+  /** Archive Wendell's sessions, so the OpenCode desktop does not list them. */
+  readonly hideSessions: boolean
   readonly owners: ReadonlyArray<UserId>
   readonly defaultAccess: Access
   readonly accessFor: (guildId: GuildId) => Access
@@ -77,11 +82,16 @@ export class InvalidConfigFile extends Schema.TaggedError<InvalidConfigFile>()("
   cause: Schema.Defect(),
 }) {}
 
+export const providerOf = (model: string) => model.slice(0, Math.max(model.indexOf("/"), 0))
+
+export const isBlocked = (prefs: ServerPrefs, model: string) => (prefs.blockedProviders ?? []).includes(providerOf(model))
+
 export const describeGoal = (goal: Goal) =>
   ["You listen to this channel for this goal:", goal.wakeWhen, goal.engagement].join("\n")
 
 export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
+  hideSessions: file.hideSessions ?? true,
   owners: file.owners ?? [],
   defaultAccess: file.defaultAccess ?? "everyone",
   accessFor: (guildId) => file.guilds?.[guildId]?.access ?? file.defaultAccess ?? "everyone",

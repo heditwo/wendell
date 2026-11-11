@@ -3,6 +3,7 @@ import { Discord } from "./Discord.ts"
 import type { Fleet } from "./Fleet.ts"
 import type { Inbound } from "./Inbound.ts"
 import { Settings } from "./Settings.ts"
+import { WendellConfig } from "./WendellConfig.ts"
 
 const QUESTION = "forAgent"
 const PRIOR_MESSAGES = 10
@@ -59,6 +60,12 @@ export const layer = Layer.effect(
       question: string,
     ) {
       const log = { server: remote.name, channelId: message.channelId, messageId: message.id }
+
+      if (WendellConfig.isBlocked(remote.prefs, `${settings.decisionModel.providerID}/${settings.decisionModel.id}`)) {
+        return yield* Effect.logWarning("The decision model's provider is blocked, letting the message through", log).pipe(
+          Effect.as(false),
+        )
+      }
 
       return yield* probabilityForAgent(remote, message, question).pipe(
         Effect.timeout(TIMEOUT),

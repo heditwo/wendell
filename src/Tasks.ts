@@ -18,6 +18,10 @@ export const Task = Schema.Struct({
   createdByName: Schema.String,
   createdAt: Schema.Number,
   lastActivity: Schema.Number,
+  /** Set for sub-tasks: the thread of the task that started it. */
+  parentTaskId: Schema.optional(ChannelId),
+  /** Set for sub-tasks in a git worktree: the branch that the parent task merges. */
+  branch: Schema.optional(Schema.String),
 })
 
 export interface Task extends Schema.Schema.Type<typeof Task> {}
@@ -40,6 +44,7 @@ export interface Interface {
   readonly touch: (threadId: ChannelId) => Effect.Effect<void, TasksFileError>
   readonly recent: (guildId: Option.Option<GuildId>, limit: number) => Effect.Effect<ReadonlyArray<Task>>
   readonly slugs: (server: ServerName) => Effect.Effect<ReadonlySet<string>>
+  readonly subtasks: (parentTaskId: ChannelId) => Effect.Effect<ReadonlyArray<Task>>
 }
 
 export interface Change {
@@ -150,7 +155,13 @@ export const layer = Layer.effect(
       return new Set(all.flatMap((task) => (task.server === server ? [task.slug] : [])))
     })
 
-    return Service.of({ get, create, update, touch, recent, slugs })
+    const subtasks = Effect.fn("Tasks.subtasks")(function* (parentTaskId: ChannelId) {
+      return Object.values((yield* Ref.get(state)).tasks)
+        .filter((task) => task.parentTaskId === parentTaskId)
+        .toSorted((left, right) => left.createdAt - right.createdAt)
+    })
+
+    return Service.of({ get, create, update, touch, recent, slugs, subtasks })
   }),
 )
 

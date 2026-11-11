@@ -47,12 +47,53 @@ const checkServer = Effect.fn("doctor.checkServer")(function* (server: Servers.P
   const hasModel = (ref: string) =>
     Option.exists(models, (list) => list.data.some((model) => `${model.providerID}/${model.id}` === ref && model.enabled))
 
+  const blocked = prefs.blockedProviders ?? []
+
   yield* Option.match(Option.fromUndefinedOr(prefs.model), {
-    onNone: () => check(label("model"), true, "agent default (set servers.<name>.model to pick a cheaper one)"),
-    onSome: (model) => check(label("model"), hasModel(model), model),
+    onNone: () =>
+      blocked.length > 0
+        ? check(label("model"), false, "not set, so Wendell cannot start sessions while providers are blocked")
+        : check(label("model"), true, "agent default (set servers.<name>.model to pick a cheaper one)"),
+    onSome: (model) =>
+      WendellConfig.isBlocked(prefs, model)
+        ? check(label("model"), false, `${model} uses a blocked provider (${WendellConfig.providerOf(model)})`)
+        : check(label("model"), hasModel(model), model),
   })
 
+  yield* check(label("blocked"), true, blocked.join(", ") || "no blocked providers")
+
+  // A subagent with its own model ignores the session's model.
+  const agents = yield* client.agent.list({ location: { directory: server.directory } }).pipe(Effect.option)
+
+  const blockedSubagents = Option.match(agents, {
+    onNone: () => [],
+    onSome: (list) =>
+      list.data.flatMap((agent) => {
+        const model = agent.model === undefined ? undefined : `${agent.model.providerID}/${agent.model.id}`
+
+        return agent.mode !== "primary" && model !== undefined && WendellConfig.isBlocked(prefs, model)
+          ? [`${agent.id} (${model})`]
+          : []
+      }),
+  })
+
+  if (blocked.length > 0) {
+    yield* check(
+      label("subagents"),
+      blockedSubagents.length === 0,
+      blockedSubagents.length === 0
+        ? "no subagent has its own model on a blocked provider"
+        : `these subagents use a blocked provider: ${blockedSubagents.join(", ")}`,
+    )
+  }
+
   const decision = `${settings.decisionModel.providerID}/${settings.decisionModel.id}`
+
+  if (WendellConfig.isBlocked(prefs, decision)) {
+    yield* check(label("screen"), false, `${decision} uses a blocked provider, so the screen lets every message through`)
+
+    return yield* check(label("allow"), true, (prefs.allow ?? []).join(", ") || "nothing beyond the defaults")
+  }
 
   const screen = yield* client.experimental.generate
     .decisions({

@@ -5,7 +5,7 @@ import type { Tasks } from "./Tasks.ts"
 export type Call = Data.TaggedEnum<{
   Reply: { readonly text: string; readonly replyTo: Option.Option<MessageId> }
   React: { readonly messageId: MessageId; readonly emoji: string }
-  StartTask: { readonly messageId: MessageId; readonly title: string; readonly brief: string }
+  StartTask: { readonly messageId: Option.Option<MessageId>; readonly title: string; readonly brief: string }
   ContinueTask: {
     readonly threadId: ChannelId
     readonly request: string
@@ -15,7 +15,10 @@ export type Call = Data.TaggedEnum<{
     readonly summary: Option.Option<string>
     readonly status: Option.Option<Tasks.Task["status"]>
   }
+  SetModel: { readonly model: string; readonly scope: ModelScope }
 }>
+
+export type ModelScope = "conversation" | "default"
 
 export const Call = Data.taggedEnum<Call>()
 

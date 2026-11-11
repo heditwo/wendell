@@ -1,4 +1,4 @@
-import { AbsolutePath, OpenCode, type OpenCodeClient } from "@opencode/client/effect"
+import { AbsolutePath, OpenCode, type OpenCodeClient, Project } from "@opencode/client/effect"
 import { type ClientMcpConnection, connectClientMcp } from "@opencode/client/mcp"
 import { Context, Effect, HashMap, Layer, Option, Redacted, Ref, Schema, Semaphore } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
@@ -26,6 +26,15 @@ export interface Interface {
   /** Makes Wendell's Discord tools available to sessions in `directory`. Tools are scoped to one location. */
   readonly attach: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void>
   readonly makeDirectory: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void, ServerRequestError>
+  /**
+   * When `directory` is inside a git repository, creates a worktree of it named `name` and returns
+   * the same directory inside the worktree. Returns none when there is no repository.
+   */
+  readonly worktree: (
+    remote: Remote,
+    directory: AbsolutePath,
+    name: string,
+  ) => Effect.Effect<Option.Option<AbsolutePath>, ServerRequestError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Fleet") {}
@@ -136,6 +145,33 @@ export const layer = Layer.effect(
         ),
     )
 
+    const worktree = Effect.fn("Fleet.worktree")(
+      function* (remote: Remote, directory: AbsolutePath, name: string) {
+        const { project } = yield* remote.client.location.get({ location: { directory } })
+
+        if (project.id === Project.ID.global) return Option.none<AbsolutePath>()
+
+        // The server caches the project's repository state. Without a refresh, a repository that the task
+        // created after its first visit is "not found".
+        yield* remote.client.worktree.refresh({ projectID: project.id })
+
+        const vcs = yield* remote.client.vcs.get({ location: { directory } })
+
+        const created = yield* remote.client.worktree.create({ projectID: project.id, name }).pipe(
+          Effect.map(Option.some),
+          Effect.catchTag("WorktreeError", (error) =>
+            vcs.data.provider === "git" ? Effect.fail(error) : Effect.succeed(Option.none<{ readonly directory: string }>()),
+          ),
+        )
+
+        return Option.map(created, (worktree) =>
+          AbsolutePath.make(path.join(worktree.directory, path.relative(project.directory, directory))),
+        )
+      },
+      (effect, remote) =>
+        Effect.mapError(effect, (cause) => new ServerRequestError({ server: remote.name, operation: "Fleet.worktree", cause })),
+    )
+
     const start = Effect.fn("Fleet.start")(function* (server: Servers.Paired) {
       const client = yield* connect(server)
       const info = yield* client.server.info()
@@ -192,7 +228,7 @@ export const layer = Layer.effect(
 
     yield* Effect.forEach(remotes, (remote) => attach(remote, remote.directory), { discard: true })
 
-    return Service.of({ remotes, byName, fallback: fallback.value, attach, makeDirectory })
+    return Service.of({ remotes, byName, fallback: fallback.value, attach, makeDirectory, worktree })
   }),
 )
 
