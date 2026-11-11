@@ -20,6 +20,7 @@ import { Memory } from "./memory/Memory.ts"
 import { Recollection } from "./memory/Recollection.ts"
 import { ApprovalModes } from "./modes/ApprovalModes.ts"
 import { BusyModes } from "./modes/BusyModes.ts"
+import { ContextLimits } from "./modes/ContextLimits.ts"
 import { Fleet } from "./opencode/Fleet.ts"
 import { Models } from "./opencode/Models.ts"
 import { Tasks } from "./tasks/Tasks.ts"
@@ -37,7 +38,7 @@ const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, A
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
 // Model choices and long-term memory, which most services read.
-const Knowledge = Layer.mergeAll(Models.layer, Memory.layer)
+const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer)
 
 const Services = Layer.mergeAll(
   // Sessions and turns

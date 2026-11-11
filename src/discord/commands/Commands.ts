@@ -3,6 +3,7 @@ import { Discord } from "../Discord.ts"
 import { AutoCommand } from "./AutoCommand.ts"
 import { BusyCommand } from "./BusyCommand.ts"
 import { Command } from "./Command.ts"
+import { ContextCommand } from "./ContextCommand.ts"
 import { MemoryCommand } from "./MemoryCommand.ts"
 import { ModelCommand } from "./ModelCommand.ts"
 import { ModelsCommand } from "./ModelsCommand.ts"
@@ -18,6 +19,7 @@ export const layer = Layer.effectDiscard(
       ModelsCommand.make,
       AutoCommand.make,
       BusyCommand.make,
+      ContextCommand.make,
       MemoryCommand.make,
       RemindersCommand.make,
     ])

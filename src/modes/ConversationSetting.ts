@@ -18,7 +18,7 @@ export interface Interface<Value> {
  * A value that people set per conversation with a slash command, kept in `.data/<file>`.
  * `name` prefixes the spans, for example "BusyModes".
  */
-export const make = <Value extends string>(
+export const make = <Value>(
   name: string,
   file: string,
   value: Schema.Codec<Value>,

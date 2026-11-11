@@ -1,12 +1,13 @@
 import { type Session, SessionMessage } from "@opencode/client/effect"
 import { Clock, Deferred, Duration, Effect, Fiber, HashMap, HashSet, Option, Ref, Schedule, Stream } from "effect"
-import { WendellConfig } from "../config/WendellConfig.ts"
+import { ContextLimits } from "../modes/ContextLimits.ts"
 import { Discord } from "../discord/Discord.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
 import type { ChannelId, MessageId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
 import { Activity } from "./Activity.ts"
+import { ContextSize } from "./ContextSize.ts"
 import type { Conversation, Turn } from "./Conversation.ts"
 import { Progress } from "./Progress.ts"
 import { Sessions } from "./Sessions.ts"
@@ -24,7 +25,7 @@ const LISTENER_RESTART = Duration.seconds(5)
 export const make = (sessions: Sessions.Interface) =>
   Effect.gen(function* () {
     const discord = yield* Discord.Service
-    const config = yield* WendellConfig.Service
+    const contextLimits = yield* ContextLimits.Service
     const activity = yield* Activity.Service
     const tasks = yield* Tasks.Service
     const scope = yield* Effect.scope
@@ -35,28 +36,20 @@ export const make = (sessions: Sessions.Interface) =>
 
     // OpenCode's own threshold is a share of the model's window; this keeps every model under one fixed size.
     const compactIfFull = Effect.fn("TurnWatcher.compactIfFull")(function* (conversation: Conversation, sessionID: Session.ID) {
-      const limit = config.contextLimit(conversation.remote.name)
+      const limit = yield* contextLimits.modeFor(conversation.remote, conversation.channelId)
 
-      if (Option.isNone(limit)) return
+      if (limit === 0) return
 
-      const page = yield* conversation.remote.client.message.list({ sessionID, order: "desc", limit: 5 })
+      const size = yield* ContextSize.of(conversation.remote.client, sessionID)
 
-      // A compaction after the last answer already made room; the answer's token count is from before it.
-      const last = page.data.find((message) => message.type === "assistant" || message.type === "compaction")
-
-      if (last === undefined || last.type !== "assistant" || last.tokens === undefined) return
-
-      const { input, output, cache } = last.tokens
-      const size = input + output + cache.read + cache.write
-
-      if (size < limit.value) return
+      if (Option.isNone(size) || size.value < limit) return
 
       yield* conversation.remote.client.session.compact({ sessionID })
       yield* Effect.logInfo("Compacted a full session", {
         server: conversation.remote.name,
         channelId: conversation.channelId,
-        tokens: size,
-        limit: limit.value,
+        tokens: size.value,
+        limit,
       })
     }, Effect.catch((cause) => Effect.logWarning("Could not compact a session", { cause })))
 

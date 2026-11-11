@@ -65,7 +65,7 @@ flowchart LR
 ```
 
 - Each channel, task thread and DM has one OpenCode session. Sessions use the server owner's agent, skills and MCP servers, plus Wendell's persona from `persona.md`.
-- Long sessions are compacted: after each turn, Wendell checks the size of the session's context. When it reaches `contextLimit` (default 256k tokens), he asks OpenCode to compact it, whatever the model's window is. OpenCode's own automatic compaction stays on for smaller models.
+- Long sessions are compacted: after each turn, Wendell checks the size of the session's context. When it reaches the limit (`/context limit:` for the conversation, else `contextLimit`, default 256k tokens), he asks OpenCode to compact it, whatever the model's window is. OpenCode's own automatic compaction stays on for smaller models.
 - Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 - Channels work in Wendell's root directory on the server (for example `~/wendell`). Each task gets a subdirectory (`~/wendell/todo-app`). Each DM gets `~/wendell/dm-<user ID>`.
 - A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory.
@@ -188,6 +188,7 @@ The agent speaks only through these tools.
 | `/models` | Show the model of this conversation and the server default. Only you see the answer. |
 | `/auto` | Show or set the approval mode of this conversation. |
 | `/busy` | What happens when you message Wendell while he works. `interrupt` (default): he reads it at his next step; if he has not read it after 15 seconds, his current step is interrupted. `steer`: at his next step, never interrupted. `wait`: after he finishes. Without a mode, shows the current one. |
+| `/context` | Show this conversation's context size and limit. `limit:<size>` (for example `256k`, `200000` or `off`) sets the limit for this conversation; sub-tasks use their parent's limit. `compact:now` compacts the conversation at once. |
 | `/memory` | Show what Wendell remembers about you and this server, or remove a note with `forget`. Only you see the answer. |
 | `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. Only you see the answer. |
 
