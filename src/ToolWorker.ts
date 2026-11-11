@@ -11,6 +11,7 @@ import { Inbound } from "./Inbound.ts"
 import { Media } from "./Media.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
+import { Profile } from "./Profile.ts"
 import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
 import { SessionKey } from "./SessionKey.ts"
@@ -44,6 +45,7 @@ export const layer = Layer.effectDiscard(
     const recent = yield* Recent.Service
     const models = yield* Models.Service
     const media = yield* Media.Service
+    const profile = yield* Profile.Service
 
     // Subagents' tool calls belong to the conversation at the top of their session tree.
     const channelOf = (remote: Fleet.Remote, sessionID: string) =>
@@ -290,6 +292,82 @@ export const layer = Layer.effectDiscard(
         .pipe(Effect.mapError((error) => new ToolCalls.ToolFailure({ message: error.message })))
     })
 
+    const discordRefused = (what: string) => (error: Discord.DiscordError) => {
+      const detail = JSON.stringify(error.cause) ?? ""
+
+      return new ToolCalls.ToolFailure({
+        message: detail.includes("Ratelimited")
+          ? `Discord rate-limited the ${what} change. Username and avatar changes are limited to about 2 per hour. Try later.`
+          : `Discord refused the ${what} change: ${detail.slice(0, 300)}`,
+      })
+    }
+
+    const imageData = Effect.fn("ToolWorker.imageData")(function* (
+      request: ToolCalls.Request,
+      channelId: ChannelId,
+      file: string | null | undefined,
+    ) {
+      if (file === undefined || file === null) return file
+
+      const [upload] = yield* attachments(request, channelId, [file])
+
+      if (upload === undefined || !Media.isImage(upload.contentType)) {
+        return yield* fail(`${file} is not a PNG, JPEG, GIF or WebP image.`)
+      }
+
+      return `data:${upload.contentType};base64,${Buffer.from(upload.data).toString("base64")}`
+    })
+
+    const setProfile = Effect.fn("ToolWorker.setProfile")(function* (
+      request: ToolCalls.Request,
+      channelId: ChannelId,
+      change: ToolCalls.ProfileChange,
+    ) {
+      const changed = Object.entries(change).flatMap(([field, value]) => (value === undefined ? [] : [field]))
+
+      if (changed.length === 0) return yield* fail("Set at least one field to change.")
+
+      if (change.username !== undefined || change.avatar !== undefined || change.banner !== undefined) {
+        const avatar = yield* imageData(request, channelId, change.avatar)
+        const banner = yield* imageData(request, channelId, change.banner)
+
+        const update: Discord.ProfileUpdate = {}
+
+        if (change.username !== undefined) update.username = change.username
+
+        if (avatar !== undefined) update.avatar = avatar
+
+        if (banner !== undefined) update.banner = banner
+
+        yield* discord.updateProfile(update).pipe(Effect.mapError(discordRefused("profile")))
+      }
+
+      if (change.about !== undefined) yield* discord.updateAbout(change.about).pipe(Effect.mapError(discordRefused("About me")))
+
+      if (change.nickname !== undefined) {
+        const info = yield* discord.channel(channelId).pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "Could not read this channel." })))
+
+        if (Option.isNone(info.guildId)) return yield* fail("Nicknames exist only in Discord servers, not in DMs.")
+
+        yield* discord.updateNickname(info.guildId.value, change.nickname).pipe(Effect.mapError(discordRefused("nickname")))
+      }
+
+      if (change.status !== undefined || change.activity !== undefined) {
+        const current = yield* profile.presence
+
+        yield* profile
+          .setPresence({
+            status: change.status ?? current.status,
+            activity: change.activity === undefined ? current.activity : Option.fromNullishOr(change.activity),
+          })
+          .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "The presence changed, but Wendell could not save it." })))
+      }
+
+      yield* Effect.logInfo("Changed Wendell's profile", { fields: changed })
+
+      return `Changed: ${changed.join(", ")}.`
+    })
+
     const handle = Effect.fn("ToolWorker.handle")(function* (request: ToolCalls.Request) {
       const channelId = yield* channelOf(yield* remoteOf(request), request.sessionID)
 
@@ -434,6 +512,8 @@ export const layer = Layer.effectDiscard(
 
             return `This conversation now uses ${resolved.name} (${resolved.id}), from your next turn.`
           }),
+
+        SetProfile: ({ change }) => setProfile(request, channelId, change),
       })
     })
 

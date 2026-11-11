@@ -62,6 +62,37 @@ const SetModelArgs = Schema.Struct({
   }),
 })
 
+const SetProfileArgs = Schema.Struct({
+  username: Schema.optional(Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(32))).annotate({
+    description: "New global username. Discord allows about 2 changes per hour.",
+  }),
+  avatar: Schema.optional(Schema.NullOr(Schema.NonEmptyString)).annotate({
+    description: "Path of a PNG, JPEG, GIF or WebP file on the server (relative to your working directory), or null to remove the avatar.",
+  }),
+  banner: Schema.optional(Schema.NullOr(Schema.NonEmptyString)).annotate({
+    description: "Path of an image file on the server for the profile banner, or null to remove it.",
+  }),
+  about: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMaxLength(400)))).annotate({
+    description: 'The "About me" text on the profile, or null to clear it.',
+  }),
+  nickname: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32)))).annotate({
+    description: "Nickname in this Discord server only, or null to go back to the username. Not available in DMs.",
+  }),
+  status: Schema.optional(Schema.Literals(["online", "idle", "dnd", "invisible"])).annotate({
+    description: 'Online status. "dnd" is Do Not Disturb.',
+  }),
+  activity: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        type: Schema.Literals(["playing", "listening", "watching", "competing", "custom"]),
+        text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+      }),
+    ),
+  ).annotate({
+    description: 'What the profile shows, for example { "type": "listening", "text": "the rain" } or a custom status. null clears it.',
+  }),
+})
+
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
 
 const text = (value: string): ClientMcpToolResult => ({ content: [{ type: "text", text: value }] })
@@ -170,6 +201,14 @@ export const make = (
         "A change of this conversation applies from your next turn.",
       SetModelArgs,
       (input) => ToolCalls.Call.SetModel({ model: input.model, scope: input.scope ?? "conversation" }),
+    ),
+    tool(
+      "set_profile",
+      "Change your Discord profile: username, avatar, banner, \"About me\", your nickname in this server, your online status " +
+        "and your activity. Set only the fields that should change. Status and activity stay after a restart. " +
+        "To make a new avatar, create the image with image_generate first, then pass its path.",
+      SetProfileArgs,
+      (input) => ToolCalls.Call.SetProfile({ change: input }),
     ),
   ]
 }

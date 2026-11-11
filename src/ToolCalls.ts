@@ -23,7 +23,26 @@ export type Call = Data.TaggedEnum<{
     readonly status: Option.Option<Tasks.Task["status"]>
   }
   SetModel: { readonly model: string; readonly scope: ModelScope }
+  SetProfile: { readonly change: ProfileChange }
 }>
+
+/** `null` removes or clears the field. Fields that are not set stay as they are. */
+export interface ProfileChange {
+  readonly username?: string | undefined
+  readonly avatar?: string | null | undefined
+  readonly banner?: string | null | undefined
+  readonly about?: string | null | undefined
+  readonly nickname?: string | null | undefined
+  readonly status?: PresenceStatus | undefined
+  readonly activity?: Activity | null | undefined
+}
+
+export type PresenceStatus = "online" | "idle" | "dnd" | "invisible"
+
+export interface Activity {
+  readonly type: "playing" | "listening" | "watching" | "competing" | "custom"
+  readonly text: string
+}
 
 export type ModelScope = "conversation" | "default"
 

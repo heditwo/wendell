@@ -98,6 +98,36 @@ export interface Outgoing {
   readonly mention: Option.Option<UserId>
 }
 
+/** Built field by field, so it stays mutable. */
+export interface ProfileUpdate {
+  username?: string
+  avatar?: string | null
+  banner?: string | null
+}
+
+export interface Presence {
+  readonly status: "online" | "idle" | "dnd" | "invisible"
+  readonly activity: Option.Option<{
+    readonly type: "playing" | "listening" | "watching" | "competing" | "custom"
+    readonly text: string
+  }>
+}
+
+const activityTypes = {
+  playing: DiscordTypes.ActivityType.Playing,
+  listening: DiscordTypes.ActivityType.Listening,
+  watching: DiscordTypes.ActivityType.Watching,
+  competing: DiscordTypes.ActivityType.Competing,
+  custom: DiscordTypes.ActivityType.Custom,
+} as const
+
+const presenceStatuses = {
+  online: DiscordTypes.PresenceUpdateStatus.Online,
+  idle: DiscordTypes.PresenceUpdateStatus.Idle,
+  dnd: DiscordTypes.PresenceUpdateStatus.DoNotDisturb,
+  invisible: DiscordTypes.PresenceUpdateStatus.Invisible,
+} as const
+
 export class DiscordError extends Schema.TaggedError<DiscordError>()("Discord.DiscordError", {
   operation: Schema.String,
   cause: Schema.Defect(),
@@ -133,6 +163,15 @@ export interface Interface {
   readonly react: (channelId: ChannelId, messageId: MessageId, emoji: string) => Effect.Effect<void, DiscordError>
   readonly unreact: (channelId: ChannelId, messageId: MessageId, emoji: string) => Effect.Effect<void, DiscordError>
   readonly typing: (channelId: ChannelId) => Effect.Effect<void, DiscordError>
+  /** Global profile. Images are data URIs; `null` removes them. */
+  readonly updateProfile: (update: ProfileUpdate) => Effect.Effect<void, DiscordError>
+  /** The "About me" text, which is the application's description. */
+  readonly updateAbout: (text: string | null) => Effect.Effect<void, DiscordError>
+  readonly updateNickname: (guildId: GuildId, nickname: string | null) => Effect.Effect<void, DiscordError>
+  /** False when no gateway connection is open. */
+  readonly setPresence: (presence: Presence) => Effect.Effect<boolean>
+  /** Emits after each gateway connection, when the presence must be set again. */
+  readonly connected: Stream.Stream<void>
   readonly startThread: (
     channelId: ChannelId,
     messageId: MessageId,
@@ -504,6 +543,50 @@ const make = Effect.gen(function* () {
     (effect) => discordError("Discord.typing")(effect),
   )
 
+  const updateProfile = Effect.fn("Discord.updateProfile")(
+    function* (update: ProfileUpdate) {
+      const current = yield* rest.getMyUser()
+
+      yield* rest.updateMyUser({ username: current.username, ...update })
+    },
+    (effect) => discordError("Discord.updateProfile")(effect),
+  )
+
+  const updateAbout = Effect.fn("Discord.updateAbout")(
+    function* (text: string | null) {
+      yield* rest.updateMyApplication({ description: text === null ? null : { default: text } })
+    },
+    (effect) => discordError("Discord.updateAbout")(effect),
+  )
+
+  const updateNickname = Effect.fn("Discord.updateNickname")(
+    function* (guildId: GuildId, nickname: string | null) {
+      yield* rest.updateMyGuildMember(guildId, { nick: nickname })
+    },
+    (effect) => discordError("Discord.updateNickname")(effect),
+  )
+
+  const setPresence = Effect.fn("Discord.setPresence")(function* (presence: Presence) {
+    return yield* gateway.send({
+      op: DiscordTypes.GatewayOpcodes.PresenceUpdate,
+      d: {
+        since: null,
+        afk: false,
+        status: presenceStatuses[presence.status],
+        activities: Option.match(presence.activity, {
+          onNone: () => [],
+          onSome: ({ type, text }) => [
+            type === "custom"
+              ? { type: activityTypes.custom, name: "Custom Status", state: text }
+              : { type: activityTypes[type], name: text },
+          ],
+        }),
+      },
+    })
+  })
+
+  const connected = gateway.fromDispatch("READY").pipe(Stream.map(() => undefined))
+
   const startThread = Effect.fn("Discord.startThread")(
     function* (channelId: ChannelId, messageId: MessageId, name: string) {
       const thread = yield* rest.createThreadFromMessage(channelId, messageId, {
@@ -561,6 +644,11 @@ const make = Effect.gen(function* () {
     react,
     unreact,
     typing,
+    updateProfile,
+    updateAbout,
+    updateNickname,
+    setPresence,
+    connected,
     startThread,
     createThread,
     answerPress,

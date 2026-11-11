@@ -147,6 +147,7 @@ The agent speaks only through these tools.
 | `wendell_continue_task` | Send a request to an existing task. |
 | `wendell_update_task` | Record the summary and status of a task. |
 | `wendell_set_model` | Change the model of the conversation or the server default. |
+| `wendell_set_profile` | Change Wendell's Discord profile: `username`, `avatar` and `banner` (image paths on the server, or `null` to remove), `about` ("About me"), `nickname` (in this Discord server), `status` (`online`, `idle`, `dnd`, `invisible`) and `activity` (`{ "type": "listening", "text": "the rain" }`, or `custom` for a custom status). Wendell keeps the status and activity in `.data/profile.json` and sets them again after each reconnect. Discord limits username and avatar changes to about 2 per hour. |
 
 ## Slash commands
 

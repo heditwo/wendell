@@ -11,6 +11,7 @@ import { Listener } from "./Listener.ts"
 import { Media } from "./Media.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
+import { Profile } from "./Profile.ts"
 import { Recent } from "./Recent.ts"
 import { Reviewer } from "./Reviewer.ts"
 import { Screen } from "./Screen.ts"
@@ -28,7 +29,7 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, Media.layer, Transcriber.layer).pipe(
+const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, Media.layer, Transcriber.layer, Profile.layer).pipe(
   Layer.provideMerge(Models.layer),
 )
 
