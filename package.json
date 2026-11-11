@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "bun src/main.ts",
-    "pair": "bun src/pair.ts",
-    "unpair": "bun src/unpair.ts",
-    "doctor": "bun src/doctor.ts",
+    "pair": "bun src/cli/pair.ts",
+    "unpair": "bun src/cli/unpair.ts",
+    "doctor": "bun src/cli/doctor.ts",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint",
     "check": "bun run typecheck && bun run lint"
