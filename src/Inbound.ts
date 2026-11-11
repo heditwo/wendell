@@ -93,6 +93,7 @@ const renderFile: (note: FileNote) => string = FileNote.$match({
 const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Route.$match({
   Addressed: () => Option.none(),
   Named: () => Option.none(),
+  Spoken: () => Option.none(),
   Task: () => Option.none(),
   FollowUp: () => Option.none(),
   Ignored: () => Option.none(),

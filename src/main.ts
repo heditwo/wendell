@@ -23,9 +23,9 @@ import { ToolWorker } from "./ToolWorker.ts"
 import { Transcriber } from "./Transcriber.ts"
 import { WendellConfig } from "./WendellConfig.ts"
 
-const Platform = Layer.mergeAll(BunServices.layer, BunHttpClient.layer, Settings.layer, Activity.layer, Recent.layer, ToolCalls.layer)
+const Platform = Layer.mergeAll(BunServices.layer, BunHttpClient.layer, Settings.layer, Recent.layer, ToolCalls.layer)
 
-const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer)
+const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, Activity.layer)
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 

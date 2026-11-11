@@ -64,6 +64,7 @@ export const layer = Layer.effectDiscard(
         fromBot: message.authorIsBot,
         addressed,
         named: !quiet && Routing.mentionsName(Inbound.words(message)),
+        spoken: !quiet && Option.isSome(message.transcript),
         inTask: Option.isSome(place.task),
         following: quiet ? false : yield* following(message.channelId, place),
         goal: quiet ? Option.none() : place.goal,

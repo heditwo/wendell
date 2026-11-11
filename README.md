@@ -85,6 +85,7 @@ Voice messages and audio files are transcribed on the machine that runs Wendell,
 
 - Wendell converts the audio to a 16 kHz mono WAV file with `ffmpeg`, then runs a local speech-to-text command. The default is [voxtype](https://github.com/peteonrails/voxtype) (`voxtype -q transcribe {file}`), which uses Whisper on your machine.
 - The transcript goes to the agent with the message, and routing uses it. So "Wendell, …" in a voice message addresses him.
+- Speech recognition often mishears "Wendell". So a voice message without his name still goes to the screen, which knows about the problem, instead of being ignored.
 - If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
 - To use another tool, set `transcription.command`. To turn it off, set `transcription.enabled` to `false`. `bun run doctor` checks that the commands exist.
 

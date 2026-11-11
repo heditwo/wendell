@@ -6,6 +6,8 @@ export type Route = Data.TaggedEnum<{
   Addressed: {}
   /** Wendell's name appears, but maybe only in passing. */
   Named: {}
+  /** A voice message without his name: speech recognition often mishears "Wendell". */
+  Spoken: {}
   /** A message in one of Wendell's task threads. */
   Task: {}
   FollowUp: {}
@@ -19,6 +21,7 @@ export interface Facts {
   readonly fromBot: boolean
   readonly addressed: boolean
   readonly named: boolean
+  readonly spoken: boolean
   readonly inTask: boolean
   readonly following: boolean
   readonly goal: Option.Option<WendellConfig.Goal>
@@ -45,6 +48,8 @@ export const classify = (facts: Facts): Route => {
 
   if (facts.named) return Route.Named()
 
+  if (facts.spoken) return Route.Spoken()
+
   if (facts.following) return Route.FollowUp()
 
   return Option.match(facts.goal, {
@@ -62,6 +67,12 @@ export const screenQuestion: (route: Route) => Option.Option<string> = Route.$ma
       "Wendell is an AI agent in this chat. The latest message contains his name. " +
         "Is it talking to Wendell or asking him to do something? Talking about him to someone else does not count.",
     ),
+  Spoken: () =>
+    Option.some(
+      "Wendell is an AI agent in this chat. The latest message is a transcribed voice message, and speech recognition " +
+        'often mishears the name "Wendell" (for example as "window", "Wendel" or "Randall"). ' +
+        "Is it talking to Wendell or asking him to do something? Talking to someone else does not count.",
+    ),
   FollowUp: () =>
     Option.some(
       "An AI agent named Wendell is taking part in this conversation. Could this latest message be for it? " +
@@ -77,6 +88,8 @@ export const screenQuestion: (route: Route) => Option.Option<string> = Route.$ma
 export const guidance: (route: Route) => string = Route.$match({
   Addressed: () => "Someone addressed you directly. Reply.",
   Named: () => "This message uses your name. Reply if it is meant for you. Otherwise stay silent.",
+  Spoken: () =>
+    "This is a voice message. Speech recognition may have misheard your name. Reply if it is meant for you. Otherwise stay silent.",
   Task: () =>
     "This message is in your task thread. Act on requests and feedback about the task. Stay silent for side chatter.",
   Ignored: () => "Do not reply.",
@@ -91,6 +104,7 @@ export const guidance: (route: Route) => string = Route.$match({
 export const isActionable: (route: Route) => boolean = Route.$match({
   Addressed: () => true,
   Named: () => true,
+  Spoken: () => true,
   Task: () => true,
   FollowUp: () => true,
   Watched: () => true,
@@ -101,6 +115,7 @@ export const isActionable: (route: Route) => boolean = Route.$match({
 export const expectsReply: (route: Route) => boolean = Route.$match({
   Addressed: () => true,
   Named: () => false,
+  Spoken: () => false,
   Task: () => false,
   FollowUp: () => false,
   Watched: () => false,
@@ -111,6 +126,7 @@ export const expectsReply: (route: Route) => boolean = Route.$match({
 export const showsProgress: (route: Route) => boolean = Route.$match({
   Addressed: () => true,
   Named: () => true,
+  Spoken: () => true,
   Task: () => true,
   FollowUp: () => false,
   Watched: () => false,
