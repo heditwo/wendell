@@ -40,6 +40,9 @@ export const parseModelRef = (name: string, value: string): Effect.Effect<Model.
 
 const absolute = (value: string) => path.resolve(value)
 
+/** The time zone of the machine that runs Wendell. */
+const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 export const config = Config.all({
   dataDirectory: Config.String("WENDELL_DATA_DIR").pipe(Config.withDefault(".data"), Config.map(absolute)),
   configFile: Config.String("WENDELL_CONFIG").pipe(Config.withDefault("wendell.json"), Config.map(absolute)),
@@ -51,7 +54,7 @@ export const config = Config.all({
   interruptAfter: Config.Duration("WENDELL_INTERRUPT_AFTER").pipe(Config.withDefault(Duration.seconds(15))),
   batchWindow: Config.Duration("WENDELL_BATCH_WINDOW").pipe(Config.withDefault(Duration.seconds(3))),
   followWindow: Config.Duration("WENDELL_FOLLOW_WINDOW").pipe(Config.withDefault(Duration.minutes(10))),
-  timeZone: Config.String("WENDELL_TIME_ZONE").pipe(Config.withDefault("America/New_York")),
+  timeZone: Config.String("WENDELL_TIME_ZONE").pipe(Config.withDefault(localTimeZone)),
 })
 
 export const layer = Layer.effect(

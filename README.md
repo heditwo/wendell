@@ -115,7 +115,7 @@ sequenceDiagram
 Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCode config). The agent creates a schedule in the conversation's session with `schedule_create`. When it fires, the session gets the schedule's prompt as a new turn, and the agent posts in the conversation.
 
 - A schedule fires once (`in 20 minutes`, or at a time), at an interval (`every 1 hour`) or on a cron (`0 9 * * 1-5`).
-- Times use `WENDELL_TIME_ZONE` (default `America/New_York`), unless you name another time zone.
+- Times use `WENDELL_TIME_ZONE` (default: the time zone of the machine that runs Wendell), unless you name another time zone.
 - A reminder pings only the person who asked. The agent sets `mention` in `wendell_reply`, and Discord allows only that user. Wendell never pings roles, `@everyone` or `@here`.
 - A check that reports only problems stays silent when everything is fine.
 - Wendell attaches his tools to all known conversations when he starts, so a schedule can post after a restart.
@@ -233,7 +233,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 5. Pair Wendell with the printed link before it expires (5 minutes, one use):
 
    ```sh
-   bun run pair omarchy http://<tailnet-name-or-ip>:49374/auth/connect/<code> /home/<you>/wendell
+   bun run pair home http://<tailnet-name-or-ip>:49374/auth/connect/<code> /home/<you>/wendell
    ```
 
    Repeat for more servers with other names. The token goes into `.data/servers.json` with mode `600`. It lasts 30 days. Pair again when `bun run doctor` reports that the token expired. Remove a server with `bun run unpair <name>`.
@@ -311,7 +311,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |
 | How long Wendell waits to batch messages | `WENDELL_BATCH_WINDOW` |
-| The time zone for reminders | `WENDELL_TIME_ZONE` (default `America/New_York`) |
+| The time zone for reminders | `WENDELL_TIME_ZONE` (default: the machine's time zone) |
 | The model of one conversation, or of a server | `/model`, or ask Wendell |
 
 Changes to `persona.md`, `model` and `allow` reach existing sessions after a restart. Tasks are recorded in `.data/tasks.json`, model choices in `.data/models.json`, approval modes in `.data/approvals.json`.

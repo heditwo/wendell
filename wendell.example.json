@@ -1,7 +1,7 @@
 {
-  "defaultServer": "omarchy",
+  "defaultServer": "home",
   "servers": {
-    "omarchy": {
+    "home": {
       "model": "opencode/claude-sonnet-5-5",
       "allow": ["browse_*"],
       "blockedProviders": ["openai"]

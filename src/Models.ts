@@ -86,7 +86,7 @@ export const key = (model: Model.Info) => `${model.providerID}/${model.id}`
 export const parse = (input: string) =>
   Effect.try({
     try: () => Model.Ref.parse(input.trim()),
-    catch: () => new UnknownModel({ message: `"${input}" is not a model reference. Use "provider/model", for example "anthropic-personal/claude-haiku-4-5".` }),
+    catch: () => new UnknownModel({ message: `"${input}" is not a model reference. Use "provider/model" with IDs that the server lists.` }),
   })
 
 const tokens = (text: string) =>

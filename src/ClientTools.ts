@@ -55,7 +55,7 @@ const UpdateTaskArgs = Schema.Struct({
 
 const SetModelArgs = Schema.Struct({
   model: Schema.NonEmptyString.annotate({
-    description: 'Model as "provider/model", with an optional "#variant", for example "anthropic-personal/claude-haiku-4-5".',
+    description: 'Model as "provider/model", with an optional "#variant", using the provider and model IDs that the server lists.',
   }),
   scope: Schema.optional(Schema.Literals(["conversation", "default"])).annotate({
     description: '"conversation" (default): this conversation only. "default": new conversations on this server.',
