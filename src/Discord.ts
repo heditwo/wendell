@@ -228,6 +228,48 @@ const describeChannel = (channel: DiscordTypes.APIChannel): ChannelInfo => {
 
 const displayName = (user: DiscordTypes.UserResponse) => user.global_name ?? user.username
 
+const SnapshotAttachment = Schema.Struct({
+  id: Schema.String,
+  filename: Schema.String,
+  url: Schema.String,
+  content_type: Schema.optional(Schema.String),
+  size: Schema.Number,
+})
+
+// dfx's types do not include forwarded messages yet, so this part of the payload is decoded on its own.
+const Forwards = Schema.Struct({
+  message_snapshots: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        message: Schema.Struct({
+          content: Schema.optional(Schema.String),
+          attachments: Schema.optional(Schema.Array(SnapshotAttachment)),
+        }),
+      }),
+    ),
+  ),
+})
+
+const forwardsOf = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
+  Option.match(Schema.decodeUnknownOption(Forwards)(data), {
+    onNone: () => [],
+    onSome: (decoded) => (decoded.message_snapshots ?? []).map((snapshot) => snapshot.message),
+  })
+
+const toAttachment = (attachment: {
+  readonly id: string
+  readonly filename: string
+  readonly url: string
+  readonly content_type?: string | null | undefined
+  readonly size: number
+}): Inbound.Attachment => ({
+  id: attachment.id,
+  name: attachment.filename,
+  url: attachment.url,
+  contentType: Option.fromNullishOr(attachment.content_type),
+  size: attachment.size,
+})
+
 const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchData): Inbound.Message => ({
   id: MessageId.make(data.id),
   channelId: ChannelId.make(data.channel_id),
@@ -236,13 +278,16 @@ const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchDa
   authorName: data.member?.nick ?? displayName(data.author),
   authorIsBot: data.author.bot === true || data.author.id === me,
   content: data.content,
-  attachments: data.attachments.map((attachment) => ({
-    id: attachment.id,
-    name: attachment.filename,
-    url: attachment.url,
-    contentType: Option.fromNullishOr(attachment.content_type),
-    size: attachment.size,
-  })),
+  forwarded: Option.some(
+    forwardsOf(data)
+      .flatMap((forward) => Option.toArray(Option.fromNullishOr(forward.content)))
+      .filter((text) => text.trim() !== "")
+      .join("\n\n"),
+  ).pipe(Option.filter((text) => text !== "")),
+  attachments: [
+    ...data.attachments.map(toAttachment),
+    ...forwardsOf(data).flatMap((forward) => (forward.attachments ?? []).map(toAttachment)),
+  ],
   stickers: (data.sticker_items ?? []).map((sticker) => sticker.name),
   transcript: Option.none(),
   mentionsMe: data.mentions.some((user) => user.id === me),
@@ -250,7 +295,10 @@ const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchDa
 })
 
 const hasSubstance = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
-  data.content.trim() !== "" || data.attachments.length > 0 || (data.sticker_items ?? []).length > 0
+  data.content.trim() !== "" ||
+  data.attachments.length > 0 ||
+  (data.sticker_items ?? []).length > 0 ||
+  forwardsOf(data).some((forward) => (forward.content ?? "").trim() !== "" || (forward.attachments ?? []).length > 0)
 
 const isConversational = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
   (data.type === MESSAGE_TYPE_DEFAULT || data.type === MESSAGE_TYPE_REPLY) && hasSubstance(data)

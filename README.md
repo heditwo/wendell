@@ -79,6 +79,7 @@ Files that you send to Wendell go to the OpenCode server, not to the machine tha
 - Wendell saves each attachment in the conversation's directory, in `attachments/<message ID>/<file name>`. He makes the file name safe first (letters, digits, `.`, `-` and `_`).
 - Files larger than 25 MB are not downloaded. The message tells the agent that they were skipped.
 - The agent gets the name, type, size and path of each file. PNG, JPEG, GIF and WebP images also go to the model with the prompt, so it sees them. The model must accept images.
+- Forwarded messages work too. The agent gets the forwarded text, marked as forwarded, and the forwarded files and images like other attachments.
 - Messages with only a file or a sticker work like other messages. For example, reply to Wendell with only a screenshot.
 
 Voice messages and audio files are transcribed on the machine that runs Wendell, without a paid service:

@@ -22,6 +22,8 @@ export const Message = Schema.Struct({
   authorName: Schema.String,
   authorIsBot: Schema.Boolean,
   content: Schema.String,
+  /** The text of a message that was forwarded from another channel or server. Its files are in `attachments`. */
+  forwarded: Schema.Option(Schema.String),
   attachments: Schema.Array(Attachment),
   stickers: Schema.Array(Schema.String),
   /** What was said in the message's voice messages and audio files, transcribed on Wendell's machine. */
@@ -75,6 +77,7 @@ export const words = (message: Message) =>
 export const plainText = (message: Message) =>
   [
     message.content,
+    ...Option.toArray(message.forwarded).map((text) => `[forwarded message: ${text}]`),
     ...Option.toArray(message.transcript).map((text) => `[voice message: ${text}]`),
     ...message.attachments.map((attachment) => `[attachment: ${attachment.name}]`),
     ...message.stickers.map((sticker) => `[sticker: ${sticker}]`),
@@ -112,6 +115,12 @@ export const render = ({ message, route, files }: Routed) => {
   })
 
   if (message.content.trim() !== "") lines.push(escape(message.content))
+
+  Option.match(message.forwarded, {
+    onNone: () => undefined,
+    onSome: (text) =>
+      lines.push(`<forwarded_message note="The author forwarded this from another channel or server.">${escape(text)}</forwarded_message>`),
+  })
 
   Option.match(message.transcript, {
     onNone: () => undefined,
