@@ -179,7 +179,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | Wendell's voice and rules | `persona.md` |
 | What Wendell listens for | `goal.wakeWhen` in `wendell.json` |
 | How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
-| How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.85`) |
+| How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |
 | How long Wendell waits to batch messages | `WENDELL_BATCH_WINDOW` |

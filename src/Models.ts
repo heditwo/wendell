@@ -55,11 +55,13 @@ export interface Interface {
     directory: AbsolutePath,
     input: string,
   ) => Effect.Effect<Resolved, CatalogError | UnknownModel>
+  /** Models that match every word of the query. Models of `preferred` providers come first, in that order. */
   readonly search: (
     remote: Fleet.Remote,
     directory: AbsolutePath,
     query: string,
     limit: number,
+    preferred: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlyArray<Model.Info>, CatalogError>
   /**
    * The model for a conversation: its own choice, then the stored server default, then
@@ -224,8 +226,17 @@ export const layer = Layer.effect(
       directory: AbsolutePath,
       query: string,
       limit: number,
+      preferred: ReadonlyArray<string>,
     ) {
-      return matching(yield* catalog(remote, directory), query).slice(0, limit)
+      const rank = (model: Model.Info) => {
+        const index = preferred.indexOf(model.providerID)
+
+        return index === -1 ? preferred.length : index
+      }
+
+      return matching(yield* catalog(remote, directory), query)
+        .toSorted((left, right) => rank(left) - rank(right))
+        .slice(0, limit)
     })
 
     const allowed = (remote: Fleet.Remote, candidates: ReadonlyArray<string | undefined>) =>

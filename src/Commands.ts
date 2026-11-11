@@ -5,6 +5,7 @@ import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
+import { WendellConfig } from "./WendellConfig.ts"
 import type { ToolCalls } from "./ToolCalls.ts"
 
 const MAX_CHOICES = 25
@@ -180,7 +181,12 @@ export const layer = Layer.effectDiscard(
 
       const choices = yield* Effect.gen(function* () {
         const place = yield* places.forOrigin(origin(call))
-        const found = yield* models.search(place.conversation.remote, place.conversation.directory, query, MAX_CHOICES)
+        const current = yield* conversations.currentModel(place.conversation).pipe(Effect.orElseSucceed(() => Option.none<string>()))
+        const fallback = yield* models.defaultFor(place.conversation.remote)
+
+        const preferred = [...new Set([...Option.toArray(current), ...Option.toArray(fallback)].map(WendellConfig.providerOf))]
+
+        const found = yield* models.search(place.conversation.remote, place.conversation.directory, query, MAX_CHOICES, preferred)
 
         return found.map((model) => ({ name: `${model.name} · ${Models.key(model)}`, value: Models.key(model) }))
       }).pipe(

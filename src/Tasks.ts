@@ -44,6 +44,7 @@ export interface Interface {
   readonly recent: (guildId: Option.Option<GuildId>, limit: number) => Effect.Effect<ReadonlyArray<Task>>
   readonly slugs: (server: ServerName) => Effect.Effect<ReadonlySet<string>>
   readonly subtasks: (parentTaskId: ChannelId) => Effect.Effect<ReadonlyArray<Task>>
+  readonly all: Effect.Effect<ReadonlyArray<Task>>
 }
 
 export interface Change {
@@ -160,7 +161,9 @@ export const layer = Layer.effect(
         .toSorted((left, right) => left.createdAt - right.createdAt)
     })
 
-    return Service.of({ get, create, update, touch, recent, slugs, subtasks })
+    const all = Ref.get(state).pipe(Effect.map((current) => Object.values(current.tasks)))
+
+    return Service.of({ get, create, update, touch, recent, slugs, subtasks, all })
   }),
 )
 

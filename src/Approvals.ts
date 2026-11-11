@@ -1,5 +1,5 @@
-import type { Permission } from "@opencode/client/effect"
-import { Duration, Effect, HashMap, Layer, Option, Ref, Schedule, Stream } from "effect"
+import { AbsolutePath, type Permission } from "@opencode/client/effect"
+import { Duration, Effect, HashMap, HashSet, Layer, Option, Ref, Schedule, Stream } from "effect"
 import { ApprovalModes } from "./ApprovalModes.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
@@ -7,6 +7,7 @@ import { Fleet } from "./Fleet.ts"
 import type { ChannelId } from "./Ids.ts"
 import { Reviewer } from "./Reviewer.ts"
 import { SessionKey } from "./SessionKey.ts"
+import { Tasks } from "./Tasks.ts"
 
 const PREFIX = "wendell:perm:"
 const GUARD_RESTART = Duration.seconds(5)
@@ -69,6 +70,9 @@ export const layer = Layer.effectDiscard(
     const conversations = yield* Conversations.Service
     const approvalModes = yield* ApprovalModes.Service
     const reviewer = yield* Reviewer.Service
+    const tasks = yield* Tasks.Service
+    const handled = yield* Ref.make(HashSet.empty<string>())
+    const noted = yield* Ref.make(HashSet.empty<string>())
     const pending = yield* Ref.make(HashMap.empty<string, Pending>())
 
     const ask = Effect.fn("Approvals.ask")(function* (
@@ -99,8 +103,13 @@ export const layer = Layer.effectDiscard(
       yield* remote.client.permission.reply({ sessionID: SessionKey.forSessionID(sessionID), requestID, decision: "once" })
       yield* Effect.logInfo("Approved permission request", { server: remote.name, channelId, action })
 
-      // Routine shell commands already show in the status line; a note for each would flood the thread.
-      if (action !== "shell") yield* discord.send(channelId, `-# ${note}`, Option.none()).pipe(Effect.ignore)
+      // Routine shell commands already show in the status line, and a repeated note adds nothing.
+      if (action === "shell") return
+
+      const key = `${channelId}:${note}`
+      const fresh = yield* Ref.modify(noted, (seen) => [!HashSet.has(seen, key), HashSet.add(seen, key)])
+
+      if (fresh) yield* discord.send(channelId, `-# ${note}`, Option.none()).pipe(Effect.ignore)
     })
 
     const decide = Effect.fn("Approvals.decide")(function* (
@@ -123,19 +132,48 @@ export const layer = Layer.effectDiscard(
       yield* ask(remote, channelId, sessionID, requestID, summary)
     })
 
+    const handle = Effect.fn("Approvals.handle")(function* (
+      remote: Fleet.Remote,
+      request: { readonly sessionID: string; readonly id: Permission.ID; readonly action: string; readonly resources: ReadonlyArray<string> },
+    ) {
+      const fresh = yield* Ref.modify(handled, (seen) => [!HashSet.has(seen, request.id), HashSet.add(seen, request.id)])
+
+      if (!fresh) return
+
+      const channelId = Option.flatMap(yield* conversations.rootOf(remote, request.sessionID), SessionKey.channelOf)
+
+      if (Option.isNone(channelId)) return
+
+      yield* decide(remote, channelId.value, request.sessionID, request.id, request.action, request.resources)
+    })
+
+    // Requests that were asked while Wendell was not listening, for example during a restart.
+    const sweep = Effect.fn("Approvals.sweep")(function* (remote: Fleet.Remote) {
+      const directories = new Set([
+        remote.directory,
+        ...(yield* tasks.all).flatMap((task) => (task.server === remote.name ? [task.directory] : [])),
+      ])
+
+      yield* Effect.forEach(
+        directories,
+        (directory) =>
+          remote.client.permission.request.list({ location: { directory: AbsolutePath.make(directory) } }).pipe(
+            Effect.flatMap((page) => Effect.forEach(page.data, (request) => handle(remote, request), { discard: true })),
+            Effect.catch((cause) => Effect.logWarning("Could not list pending permission requests", { directory, cause })),
+          ),
+        { discard: true },
+      )
+    })
+
     const guard = (remote: Fleet.Remote) =>
       remote.client.event.subscribe({ types: ["permission.asked"] }).pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
+            if (event.type === "server.connected") return yield* sweep(remote)
+
             if (event.type !== "permission.asked") return
 
-            const { sessionID, id, action, resources } = event.data
-
-            const channelId = Option.flatMap(yield* conversations.rootOf(remote, sessionID), SessionKey.channelOf)
-
-            if (Option.isNone(channelId)) return
-
-            yield* decide(remote, channelId.value, sessionID, id, action, resources)
+            yield* handle(remote, event.data)
           }).pipe(Effect.catch((cause) => Effect.logWarning("Could not handle a permission request", { cause }))),
         ),
         Effect.catch((cause) => Effect.logWarning("Permission guard stopped", { server: remote.name, cause })),

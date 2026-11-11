@@ -42,7 +42,7 @@ export const config = Config.all({
   personaFile: Config.String("WENDELL_PERSONA").pipe(Config.withDefault("persona.md"), Config.map(absolute)),
   decisionModel: Config.String("WENDELL_DECISION_MODEL").pipe(Config.withDefault("opencode/jev-1.13")),
   skipBelow: Config.Number("WENDELL_SKIP_BELOW").pipe(Config.withDefault(0.2)),
-  approveAbove: Config.Number("WENDELL_APPROVE_ABOVE").pipe(Config.withDefault(0.85)),
+  approveAbove: Config.Number("WENDELL_APPROVE_ABOVE").pipe(Config.withDefault(0.6)),
   batchWindow: Config.Duration("WENDELL_BATCH_WINDOW").pipe(Config.withDefault(Duration.seconds(3))),
   followWindow: Config.Duration("WENDELL_FOLLOW_WINDOW").pipe(Config.withDefault(Duration.minutes(10))),
 })

@@ -470,7 +470,7 @@ export const layer = Layer.effect(
       yield* tasks.touch(channelId).pipe(Effect.ignore)
 
       if (Option.isSome(failed) && (turn.expectReply || turn.progress)) {
-        yield* discord.send(channelId, `⚠️ I ran into an error: ${failed.value}`, Option.none())
+        yield* discord.send(channelId, `⚠️ I ran into an error: ${failed.value}\n-# If it keeps happening, pick another model with /model.`, Option.none())
         yield* activity.spoke(channelId)
 
         return
