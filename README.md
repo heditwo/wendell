@@ -236,6 +236,37 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
    bun start
    ```
 
+8. To keep Wendell running, make him a systemd user service. Create `~/.config/systemd/user/wendell.service`:
+
+   ```ini
+   [Unit]
+   Description=Wendell Discord bot
+   After=default.target network-online.target
+   StartLimitIntervalSec=0
+
+   [Service]
+   Type=simple
+   WorkingDirectory=/path/to/wendell
+   ExecStart=/path/to/bun src/main.ts
+   Restart=always
+   RestartSec=10
+   NoNewPrivileges=yes
+   EnvironmentFile=/path/to/wendell/.env
+
+   [Install]
+   WantedBy=default.target
+   ```
+
+   Then start it, and read the log with `journalctl`:
+
+   ```sh
+   systemctl --user daemon-reload
+   systemctl --user enable --now wendell
+   journalctl --user -u wendell -f
+   ```
+
+   For a service that starts without a login, run `loginctl enable-linger $USER` once. After you change the code, `persona.md` or `wendell.json`, run `systemctl --user restart wendell`.
+
 ## wendell.json
 
 | Field | Meaning |
