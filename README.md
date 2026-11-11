@@ -131,14 +131,16 @@ sequenceDiagram
 
 ## Memory
 
-Wendell remembers people the way a thoughtful friend does: not everything, but what matters.
+Wendell remembers people the way a thoughtful friend does: not everything, and not all the time.
 
-- **Person notes** follow one person into every Discord server where Wendell is. **Server notes** are about one Discord server. Notes that he learns in a DM stay private: they come back only in DMs with that person.
-- He takes notes himself with `wendell_remember` when he learns something lasting: who someone is, what they play or build, how they like him to answer, dates that matter. He does not note passing remarks, task details, secrets or gossip. Time-bound notes expire. When a fact changes, he updates the note. You can also say "remember that …".
-- Before each turn, the notes about the people in the batch and about the server go to the agent, marked as data and not instructions. A conversation gets them again only when they change.
-- Each person and each server has at most 40 notes and 4000 characters. When it is full, the agent must merge or remove notes first.
+- **Two kinds of notes.** A *profile* note says how to treat someone ("prefers short answers"). A *fact* is something about them or the server ("plays OSRS"). **Person notes** follow one person into every Discord server where Wendell is. **Server notes** are about one Discord server. Notes from a DM come back only in DMs with that person.
+- **Profiles once per session.** Each profile note comes with the next message of that person in a conversation, once, and again after the conversation is compacted.
+- **Facts only when cued.** For each batch of messages, the decision model checks the facts about the people in it and about the server, with one yes or no question per fact. At most 3 facts that clearly fit come with the batch. When a message relies on earlier conversations ("remember my setup?"), recall opens up to 6 facts with a lower bar. Each fact comes at most once per session, so he does not keep bringing it up. If the decision model fails, no facts are recalled.
+- **Tact.** The recall block tells the agent to use notes only when they help now, not to say that it remembers, and not to bring up personal things in front of others in shared channels.
+- **Capture in the background.** When a conversation has been quiet for `WENDELL_CAPTURE_AFTER` (default 10 minutes), a small model (`memory.captureModel`) reads the new messages and the current notes and returns a few changes: add, update or remove. It learns about a person only from that person's own messages, and only people who wrote in the conversation get new notes. The agent itself saves only when someone asks ("remember that …"). Turn capture off with `memory.capture: "off"`.
+- Each person and each server has at most 40 notes and 4000 characters.
 - `/memory` shows what he remembers about you and this server. Only you see the answer. `/memory forget:<note>` removes a note. You can see and remove only your own notes and the server's notes.
-- Notes are kept in `.data/memory.json` on the machine that runs Wendell. Nothing goes to a memory service.
+- Notes are in `.data/memory.json`, what each conversation has already recalled in `.data/recall.json`, and how far capture has read in `.data/capture.json`. Nothing goes to a memory service.
 
 Wendell also gets **room context**: up to 8 messages from the last 15 minutes that were not for him, sent with his next turn in that channel. So he knows what the room was talking about when someone turns to him.
 
@@ -146,13 +148,15 @@ Wendell also gets **room context**: up to 8 messages from the last 15 minutes th
 sequenceDiagram
   participant You
   participant W as Wendell
-  participant M as .data/memory.json
+  participant J as Decision model
   participant A as Agent session
+  participant C as Capture model
   You->>W: message
-  W->>M: notes about you and this server
-  W->>A: changed notes, room context, messages
-  A->>W: wendell_remember / wendell_forget
-  W->>M: save the note and where it came from
+  W->>J: which facts fit? does it refer to the past?
+  W->>A: profile (first time), fitting facts, room context, messages
+  Note over W,C: 10 quiet minutes later
+  W->>C: new messages and current notes
+  C->>W: add / update / remove
 ```
 
 ## Reminders
@@ -194,8 +198,8 @@ The agent speaks only through these tools.
 | `wendell_continue_task` | Send a request to an existing task. |
 | `wendell_update_task` | Record the summary and status of a task. |
 | `wendell_set_model` | Change the model of the conversation or the server default. |
-| `wendell_remember` | Keep a note about a person (`about: "person"`, `user_id`) or this server (`about: "server"`). Fields: `text`, `replaces` (a note ID to update), `expires` (a date), `message_id`. |
-| `wendell_forget` | Remove a note by `id`. |
+| `wendell_remember` | Only when someone asks: keep a note about a person (`about: "person"`, `user_id`) or this server (`about: "server"`). Fields: `text`, `replaces` (a note ID to update), `expires` (a date), `message_id`. |
+| `wendell_forget` | Remove a note by `id`, or by `match` (words from the note). |
 | `wendell_set_profile` | Change Wendell's Discord profile: `username`, `avatar` and `banner` (image paths on the server, or `null` to remove), `about` ("About me"), `nickname` (in this Discord server), `status` (`online`, `idle`, `dnd`, `invisible`) and `activity` (`{ "type": "listening", "text": "the rain" }`, or `custom` for a custom status). Wendell keeps the status and activity in `.data/profile.json` and sets them again after each reconnect. Discord limits username and avatar changes to about 2 per hour. |
 
 ## Slash commands
@@ -332,6 +336,8 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | Field | Meaning |
 | --- | --- |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
+| `memory.capture` | `"background"` (default) or `"off"`. See [Memory](#memory). |
+| `memory.captureModel` | Model for background capture, as `provider/model`. Default: the server's `model`. Pick a small, cheap one. |
 | `transcription` | The speech-to-text provider for voice messages: `command`, `openai` or `off` (default). See [Media](#media). |
 | `contextLimit` | Context size in tokens at which Wendell compacts a session, for every model. Default: `256000`. `0` leaves compaction to OpenCode alone. |
 | `servers.<name>.contextLimit` | The same, for one server. |
@@ -357,6 +363,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
 | How long a message waits before it interrupts Wendell (`/busy interrupt`) | `WENDELL_INTERRUPT_AFTER` (default `15 seconds`) |
 | How sure the screen must be to show 👀 and typing at once for messages that do not address him | `WENDELL_ENGAGE_ABOVE` (default `0.8`) |
+| How long a conversation must be quiet before background capture reads it | `WENDELL_CAPTURE_AFTER` (default `10 minutes`) |
 | How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |

@@ -131,10 +131,14 @@ export const make = Effect.gen(function* () {
       .deliver(
         places.forTask(task),
         [
-          // A new task session has not seen any notes yet.
-          ...(yield* recollection.before(`${remote.name}/${threadId}`, { guildId: message.guildId, channelId: threadId }, [
-            { userId: message.authorId, name: message.authorName },
-          ])),
+          // A new task session has seen no notes yet: the brief decides which facts are relevant.
+          ...(yield* recollection.before({
+            conversationKey: `${remote.name}/${threadId}`,
+            remote,
+            place: { guildId: message.guildId, channelId: threadId },
+            people: [{ userId: message.authorId, name: message.authorName }],
+            text: `${message.authorName}: ${Inbound.plainText(message)}\nTask brief: ${brief}`,
+          })),
           yield* handoff(channelId, remote.directory, message, brief, title),
         ].join("\n\n"),
         { expectReply: true, progress: true, trigger: Option.some({ channelId, messageId: message.id }) },

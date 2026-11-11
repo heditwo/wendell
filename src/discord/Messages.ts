@@ -1,7 +1,7 @@
 import { DiscordREST, type Discord as DiscordTypes } from "dfx"
 import { Config, Effect, Option, Redacted, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-import { ChannelId, MessageId, type UserId } from "../shared/Ids.ts"
+import { ChannelId, MessageId, UserId } from "../shared/Ids.ts"
 import { truncate } from "../shared/Text.ts"
 import type { Button, Outgoing, TranscriptLine, Upload } from "./Discord.ts"
 import { discordError } from "./DiscordError.ts"
@@ -32,6 +32,7 @@ export const make = (me: UserId) =>
         return (page ?? []).toReversed().map(
           (message): TranscriptLine => ({
             id: MessageId.make(message.id),
+            authorId: UserId.make(message.author.id),
             authorName: displayName(message.author),
             isMe: message.author.id === me,
             content: [message.content, ...message.attachments.map((attachment) => `[attachment: ${attachment.filename}]`)]

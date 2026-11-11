@@ -31,4 +31,20 @@ export const probability = Effect.fn("Decisions.probability")(function* (
   )
 })
 
+/** Asks several yes or no questions about `input` in one call. Returns each answered question's probability by name. */
+export const probabilities = Effect.fn("Decisions.probabilities")(function* (
+  remote: Fleet.Remote,
+  model: Model.Ref,
+  input: string,
+  questions: ReadonlyArray<{ readonly name: string; readonly instructions: string }>,
+) {
+  const result = yield* remote.client.experimental.generate.decisions({
+    model,
+    input: [{ type: "text", text: input }],
+    questions: questions.map((question) => ({ type: "predicate" as const, name: question.name, instructions: question.instructions })),
+  })
+
+  return new Map(result.answers.flatMap((answer) => (answer.type === "predicate" ? [[answer.name, answer.probability] as const] : [])))
+})
+
 export * as Decisions from "./Decisions.ts"

@@ -3,7 +3,8 @@ import { Memory } from "../../memory/Memory.ts"
 import type { Discord } from "../Discord.ts"
 import { Command } from "./Command.ts"
 
-const describeNote = (note: Memory.Note) => `• ${note.text} \`${note.id}\`${note.private ? " (DMs only)" : ""}`
+const describeNote = (note: Memory.Note) =>
+  `• ${note.kind === "profile" ? "*how to treat you:* " : ""}${note.text} \`${note.id}\`${note.private ? " (DMs only)" : ""}`
 
 /** `/memory`: shows what Wendell remembers about the caller and this server, or forgets one of those notes. */
 export const make = Effect.gen(function* () {

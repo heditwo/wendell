@@ -22,6 +22,7 @@ export interface ChannelInfo {
 
 export interface TranscriptLine {
   readonly id: MessageId
+  readonly authorId: UserId
   readonly authorName: string
   readonly isMe: boolean
   readonly content: string

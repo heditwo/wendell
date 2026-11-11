@@ -17,6 +17,7 @@ import { Recent } from "./inbound/Recent.ts"
 import { Screen } from "./inbound/Screen.ts"
 import { SpeechToText } from "./transcription/SpeechToText.ts"
 import { Transcriber } from "./transcription/Transcriber.ts"
+import { Capture } from "./memory/Capture.ts"
 import { Memory } from "./memory/Memory.ts"
 import { Recollection } from "./memory/Recollection.ts"
 import { ApprovalModes } from "./modes/ApprovalModes.ts"
@@ -49,6 +50,7 @@ const Services = Layer.mergeAll(
   Attachments.layer,
   Transcriber.layer,
   Recollection.layer,
+  Capture.layer,
   // Approvals and per-conversation modes
   Reviewer.layer,
   ApprovalModes.layer,

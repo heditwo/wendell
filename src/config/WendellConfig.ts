@@ -1,5 +1,6 @@
 import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect"
 import { ChannelId, ServerName } from "../shared/Ids.ts"
+import { MemoryConfig } from "../memory/MemoryConfig.ts"
 import { TranscriptionConfig } from "../transcription/TranscriptionConfig.ts"
 import { Settings } from "./Settings.ts"
 
@@ -63,6 +64,7 @@ export const File = Schema.Struct({
   hideSessions: Schema.optional(Schema.Boolean),
   contextLimit: Schema.optional(ContextLimit),
   transcription: Schema.optional(TranscriptionConfig.Config),
+  memory: Schema.optional(MemoryConfig.Config),
   servers: Schema.optional(
     Schema.Record(Schema.String, ServerPrefs).check(
       Schema.isPropertyNames(ServerName, { message: "Every key in servers must be a paired server name" }),
@@ -83,6 +85,7 @@ export interface Interface {
   readonly hideSessions: boolean
   /** How voice messages are transcribed. Default: off. */
   readonly transcription: TranscriptionConfig.Config
+  readonly memory: MemoryConfig.Config
   readonly serverPrefs: (name: ServerName) => ServerPrefs
   /** The context size at which Wendell compacts a session on this server, or none to leave it to OpenCode. */
   readonly contextLimit: (name: ServerName) => Option.Option<number>
@@ -107,6 +110,7 @@ export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
   hideSessions: file.hideSessions ?? true,
   transcription: file.transcription ?? TranscriptionConfig.off,
+  memory: file.memory ?? {},
   serverPrefs: (name) => file.servers?.[name] ?? {},
   contextLimit: (name) =>
     Option.some(file.servers?.[name]?.contextLimit ?? file.contextLimit ?? DEFAULT_CONTEXT_LIMIT).pipe(

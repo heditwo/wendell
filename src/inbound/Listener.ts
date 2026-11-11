@@ -4,6 +4,7 @@ import { Activity } from "../conversations/Activity.ts"
 import { Conversations } from "../conversations/Conversations.ts"
 import { Places } from "../conversations/Places.ts"
 import { Discord } from "../discord/Discord.ts"
+import { Capture } from "../memory/Capture.ts"
 import { Recollection } from "../memory/Recollection.ts"
 import { BusyModes } from "../modes/BusyModes.ts"
 import { Fleet } from "../opencode/Fleet.ts"
@@ -39,6 +40,7 @@ export const layer = Layer.effectDiscard(
     const transcriber = yield* Transcriber.Service
     const busyModes = yield* BusyModes.Service
     const recollection = yield* Recollection.Service
+    const capture = yield* Capture.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -117,11 +119,13 @@ export const layer = Layer.effectDiscard(
         ),
       ].map(([userId, name]) => ({ userId, name }))
 
-      const recalled = yield* recollection.before(
-        `${conversation.remote.name}/${conversation.channelId}`,
-        { guildId: conversation.guildId, channelId: conversation.channelId },
+      const recalled = yield* recollection.before({
+        conversationKey: `${conversation.remote.name}/${conversation.channelId}`,
+        remote: conversation.remote,
+        place: { guildId: conversation.guildId, channelId: conversation.channelId },
         people,
-      )
+        text: batch.map(({ message }) => `${message.authorName}: ${Inbound.plainText(message)}`).join("\n"),
+      })
 
       const asked = Option.fromUndefinedOr(waiting.at(-1))
 
@@ -147,6 +151,7 @@ export const layer = Layer.effectDiscard(
         },
         routed.flatMap(({ files }) => Attachments.images(files)),
       )
+      yield* capture.touch(conversation)
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,
         kind: conversation.kind,

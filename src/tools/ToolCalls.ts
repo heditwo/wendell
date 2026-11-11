@@ -29,12 +29,13 @@ export type Call = Data.TaggedEnum<{
   Remember: {
     readonly about: "person" | "server"
     readonly userId: Option.Option<UserId>
+    readonly kind: Option.Option<"profile" | "fact">
     readonly text: string
     readonly replaces: Option.Option<string>
     readonly expires: Option.Option<string>
     readonly messageId: Option.Option<MessageId>
   }
-  Forget: { readonly id: string }
+  Forget: { readonly id: Option.Option<string>; readonly match: Option.Option<string> }
 }>
 
 /** `null` removes or clears the field. Fields that are not set stay as they are. */

@@ -9,8 +9,17 @@ export const MAX_NOTES = 40
 export const MAX_CHARS = 4_000
 export const MAX_NOTE_CHARS = 300
 
+/**
+ * - `profile`: how to treat someone ("prefers short answers"). Shown once per session with their first message.
+ * - `fact`: something about them or the server ("plays OSRS"). Shown only when a message touches it.
+ */
+export const Kind = Schema.Literals(["profile", "fact"])
+
+export type Kind = typeof Kind.Type
+
 export const Note = Schema.Struct({
   id: Schema.String,
+  kind: Kind,
   text: Schema.String,
   /** Learned in a DM: recalled only in DMs with that person. */
   private: Schema.Boolean,
@@ -43,6 +52,8 @@ export interface Place {
 
 export interface Change {
   readonly scope: Scope
+  /** None keeps the kind of the note that is replaced, or makes a fact. */
+  readonly kind: Option.Option<Kind>
   readonly text: string
   readonly replaces: Option.Option<string>
   readonly expiresAt: Option.Option<number>
@@ -131,6 +142,7 @@ export const layer = Layer.effect(
 
         const note: Note = {
           id: old?.id ?? (yield* newId),
+          kind: Option.getOrElse(change.kind, () => old?.kind ?? "fact"),
           text: change.text.trim().slice(0, MAX_NOTE_CHARS),
           // A DM note stays private, and a note moved into a DM conversation becomes private.
           private: isDirect(place) || old?.private === true,

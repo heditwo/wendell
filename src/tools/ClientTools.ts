@@ -99,8 +99,11 @@ const RememberArgs = Schema.Struct({
     description: '"person": about one person, follows them across servers. "server": about this Discord server and its people as a group.',
   }),
   user_id: Schema.optional(UserId).annotate({ description: "For about=person: the person's user ID (author_id in messages)." }),
+  kind: Schema.optional(Schema.Literals(["profile", "fact"])).annotate({
+    description: '"profile": how to treat them (tone, length, language, what to call them). "fact" (default): something about them.',
+  }),
   text: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(300)).annotate({
-    description: "One short, self-contained fact, as you would note it: \"Plays OSRS, main account is an ironman.\"",
+    description: 'One short, self-contained sentence, as you would note it: "Has a cat called Miso."',
   }),
   replaces: Schema.optional(Schema.NonEmptyString).annotate({
     description: "ID of a note this one updates or merges (for example m_1a2b3c). Use it instead of adding a near-duplicate.",
@@ -112,7 +115,10 @@ const RememberArgs = Schema.Struct({
 })
 
 const ForgetArgs = Schema.Struct({
-  id: Schema.NonEmptyString.annotate({ description: "ID of the note to remove, for example m_1a2b3c." }),
+  id: Schema.optional(Schema.NonEmptyString).annotate({ description: "ID of the note to remove, from a <recall> block, for example m_1a2b3c." }),
+  match: Schema.optional(Schema.NonEmptyString).annotate({
+    description: "Words from the note, when you do not have its ID. They must match exactly one note.",
+  }),
 })
 
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
@@ -234,14 +240,14 @@ export const make = (
     ),
     tool(
       "remember",
-      "Keep a note in your long-term memory, about one person or about this server. Notes come back automatically " +
-        "in later conversations. Note what a thoughtful friend would remember: lasting facts, preferences and things " +
-        "that matter to people. Not passing remarks. Notes learned in a DM stay private to DMs with that person.",
+      "Save a note in your long-term memory, about one person or about this server, ONLY when someone asks you to " +
+        "remember something. Notes are otherwise taken for you in the background. Notes learned in a DM stay private to DMs.",
       RememberArgs,
       (input) =>
         ToolCalls.Call.Remember({
           about: input.about,
           userId: Option.fromUndefinedOr(input.user_id),
+          kind: Option.fromUndefinedOr(input.kind),
           text: input.text,
           replaces: Option.fromUndefinedOr(input.replaces),
           expires: Option.fromUndefinedOr(input.expires),
@@ -250,9 +256,9 @@ export const make = (
     ),
     tool(
       "forget",
-      "Remove a note from your memory, when it is wrong, out of date, or someone asks you to forget it.",
+      "Remove a note from your memory when someone asks you to forget it, or when a recalled note turns out to be wrong.",
       ForgetArgs,
-      (input) => ToolCalls.Call.Forget({ id: input.id }),
+      (input) => ToolCalls.Call.Forget({ id: Option.fromUndefinedOr(input.id), match: Option.fromUndefinedOr(input.match) }),
     ),
   ]
 }

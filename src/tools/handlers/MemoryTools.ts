@@ -41,7 +41,7 @@ export const make = Effect.gen(function* () {
     })
 
     const note = yield* memory
-      .remember({ scope, text: input.text, replaces: input.replaces, expiresAt, messageId: input.messageId }, place)
+      .remember({ scope, kind: input.kind, text: input.text, replaces: input.replaces, expiresAt, messageId: input.messageId }, place)
       .pipe(
         Effect.catchTags({
           "Memory.MemoryFull": (error) => ToolCalls.fail(error.message),
@@ -55,13 +55,33 @@ export const make = Effect.gen(function* () {
     return `Saved note ${note.id}${note.private ? " (private to DMs)" : ""}. Do not announce it unless someone asked you to remember it.`
   })
 
-  const forget = Effect.fn("MemoryTools.forget")(function* ({ channelId }: ToolCalls.Target, { id }: ToolCalls.CallOf<"Forget">) {
+  const forget = Effect.fn("MemoryTools.forget")(function* ({ channelId }: ToolCalls.Target, input: ToolCalls.CallOf<"Forget">) {
     const place = yield* placeOf(channelId)
     const scopes = yield* memory.allScopes(place)
 
+    const id = yield* Option.match(input.id, {
+      onSome: Effect.succeed,
+      onNone: () =>
+        Effect.gen(function* () {
+          if (Option.isNone(input.match)) return yield* ToolCalls.fail("Give the note's id, or words from it in match.")
+
+          const wanted = input.match.value.toLowerCase()
+          const notes = (yield* Effect.forEach(scopes, (scope) => memory.recall(scope, place))).flat()
+          const found = notes.filter((note) => note.text.toLowerCase().includes(wanted))
+
+          if (found.length === 1 && found[0] !== undefined) return found[0].id
+
+          return yield* ToolCalls.fail(
+            found.length === 0
+              ? "No note matches those words."
+              : `Several notes match: ${found.map((note) => `[${note.id}] ${note.text}`).join("; ")}. Use the id.`,
+          )
+        }),
+    })
+
     const note = yield* memory.forget(id, scopes, place).pipe(
       Effect.catchTags({
-        "Memory.NoteNotFound": () => ToolCalls.fail(`No note ${id} here. Use an ID from the <memory> blocks.`),
+        "Memory.NoteNotFound": () => ToolCalls.fail(`No note ${id} here.`),
         "JsonStore.StoreError": () => ToolCalls.fail("Could not save your memory."),
       }),
     )
