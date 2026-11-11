@@ -9,7 +9,7 @@ import { Conversations } from "./conversations/Conversations.ts"
 import { Discord } from "./discord/Discord.ts"
 import { Fleet } from "./opencode/Fleet.ts"
 import { Listener } from "./inbound/Listener.ts"
-import { Media } from "./inbound/Media.ts"
+import { Attachments } from "./inbound/Attachments.ts"
 import { Memory } from "./memory/Memory.ts"
 import { Models } from "./opencode/Models.ts"
 import { Places } from "./conversations/Places.ts"
@@ -22,6 +22,7 @@ import { Servers } from "./config/Servers.ts"
 import { Settings } from "./config/Settings.ts"
 import { Tasks } from "./tasks/Tasks.ts"
 import { ToolCalls } from "./tools/ToolCalls.ts"
+import { Uploads } from "./tools/Uploads.ts"
 import { ToolWorker } from "./tools/ToolWorker.ts"
 import { Transcriber } from "./inbound/Transcriber.ts"
 import { WendellConfig } from "./config/WendellConfig.ts"
@@ -38,7 +39,8 @@ const Domain = Layer.mergeAll(
   Reviewer.layer,
   ApprovalModes.layer,
   BusyModes.layer,
-  Media.layer,
+  Attachments.layer,
+  Uploads.layer,
   Transcriber.layer,
   Profile.layer,
   Recollection.layer,

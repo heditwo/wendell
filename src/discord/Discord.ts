@@ -5,6 +5,7 @@ import { Cache, Config, Context, Duration, Effect, Layer, Option, Redacted, Sche
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import type { Embeds } from "./Embeds.ts"
 import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
+import { truncate } from "../shared/Text.ts"
 import type { Inbound } from "../inbound/Inbound.ts"
 
 export const ChannelInfo = Schema.Struct({
@@ -355,8 +356,6 @@ const toCommandCall = (interaction: DiscordTypes.APIInteraction, wanted: number)
     },
   })
 }
-
-const truncate = (text: string, length: number) => (text.length <= length ? text : `${text.slice(0, length - 1)}…`)
 
 const make = Effect.gen(function* () {
   const rest = yield* DiscordREST

@@ -1,5 +1,7 @@
 import { Data, Option, Schema } from "effect"
+import { Files } from "../shared/Files.ts"
 import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
+import { attribute, escape } from "../shared/Text.ts"
 import { Routing } from "./Routing.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 
@@ -57,18 +59,6 @@ export interface Routed {
 
 export const isDirect = (message: Message) => Option.isNone(message.guildId)
 
-const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-
-const attribute = (text: string) => escape(text).replaceAll('"', "&quot;")
-
-export const formatSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`
-
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 /** The typed text and the spoken text. Routing uses it, so "Wendell, …" in a voice message addresses him. */
 export const words = (message: Message) =>
   [message.content, ...Option.toArray(message.transcript)].filter((part) => part.trim() !== "").join("\n")
@@ -87,10 +77,10 @@ export const plainText = (message: Message) =>
 
 const renderFile: (note: FileNote) => string = FileNote.$match({
   Saved: ({ name, type, size, path, image }) =>
-    `<attachment name="${attribute(name)}" type="${attribute(type)}" size="${formatSize(size)}" path="${attribute(path)}"` +
+    `<attachment name="${attribute(name)}" type="${attribute(type)}" size="${Files.formatSize(size)}" path="${attribute(path)}"` +
     `${image ? ' image="attached to this prompt"' : ""} />`,
   Skipped: ({ name, size, reason }) =>
-    `<attachment name="${attribute(name)}" size="${formatSize(size)}" skipped="${attribute(reason)}" />`,
+    `<attachment name="${attribute(name)}" size="${Files.formatSize(size)}" skipped="${attribute(reason)}" />`,
 })
 
 const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Route.$match({

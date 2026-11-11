@@ -8,7 +8,10 @@ import { Embeds } from "../discord/Embeds.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, MessageId } from "../shared/Ids.ts"
 import { Inbound } from "../inbound/Inbound.ts"
-import { Media } from "../inbound/Media.ts"
+import { Attachments } from "../inbound/Attachments.ts"
+import { Files } from "../shared/Files.ts"
+import { truncate } from "../shared/Text.ts"
+import { Uploads } from "./Uploads.ts"
 import { Memory } from "../memory/Memory.ts"
 import { Models } from "../opencode/Models.ts"
 import { Places } from "../conversations/Places.ts"
@@ -28,8 +31,6 @@ const fail = (message: string) => Effect.fail(new ToolCalls.ToolFailure({ messag
 
 const saveFailure = () => new ToolCalls.ToolFailure({ message: "Could not save the task." })
 
-const shorten = (text: string) => (text.length <= SHORT_BRIEF ? text : `${text.slice(0, SHORT_BRIEF - 1)}…`)
-
 const discordFailure =
   (message: string) =>
   <A>(effect: Effect.Effect<A, Discord.DiscordError>) =>
@@ -46,7 +47,7 @@ export const layer = Layer.effectDiscard(
     const places = yield* Places.Service
     const recent = yield* Recent.Service
     const models = yield* Models.Service
-    const media = yield* Media.Service
+    const uploads = yield* Uploads.Service
     const profile = yield* Profile.Service
     const memory = yield* Memory.Service
     const recollection = yield* Recollection.Service
@@ -98,7 +99,7 @@ export const layer = Layer.effectDiscard(
         ...earlier.map((line) => `${line.isMe ? "Wendell (you)" : line.authorName}: ${line.content}`),
         "",
         "The request that started the task:",
-        Inbound.render({ message, route: Routing.Route.Addressed(), files: Media.plan(directory, message) }),
+        Inbound.render({ message, route: Routing.Route.Addressed(), files: Attachments.plan(directory, message) }),
         "",
         "Start the work now. Post updates and the result in this thread with wendell_reply.",
       ].join("\n")
@@ -160,7 +161,7 @@ export const layer = Layer.effectDiscard(
             yield* handoff(channelId, remote.directory, message, brief, title),
           ].join("\n\n"),
           { expectReply: true, progress: true, trigger: Option.some({ channelId, messageId: message.id }) },
-          Media.images(Media.plan(remote.directory, message)),
+          Attachments.images(Attachments.plan(remote.directory, message)),
         )
         .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "The thread exists, but the task could not start." })))
       yield* Effect.logInfo("Started task", { server: remote.name, threadId, slug })
@@ -225,7 +226,7 @@ export const layer = Layer.effectDiscard(
 
       yield* tasks.create(task).pipe(Effect.mapError(saveFailure))
       yield* discord
-        .send(threadId, `Sub-task of <#${parent.threadId}>: ${shorten(brief)}`, Option.none())
+        .send(threadId, `Sub-task of <#${parent.threadId}>: ${truncate(brief, SHORT_BRIEF)}`, Option.none())
         .pipe(discordFailure("Could not post in the sub-task thread."))
       yield* discord
         .send(parent.threadId, `🧵 Sub-task started: <#${threadId}>`, Option.none())
@@ -276,29 +277,13 @@ export const layer = Layer.effectDiscard(
       )
     })
 
-    // Files may come from the conversation's directory, the directories of its tasks, and the server's temporary directory.
     const attachments = Effect.fn("ToolWorker.attachments")(function* (
       request: ToolCalls.Request,
       channelId: ChannelId,
       files: ReadonlyArray<string>,
     ) {
-      const remote = yield* remoteOf(request)
-
-      const session = yield* remote.client.session
-        .get({ sessionID: SessionKey.forChannel(channelId) })
-        .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "Could not read this conversation's session." })))
-
-      const directory = session.location.directory
-
-      const related = (yield* tasks.all).flatMap((task) =>
-        task.server === remote.name &&
-        (task.threadId === channelId || task.parentTaskId === channelId || (task.parentId === channelId && task.parentTaskId === undefined))
-          ? [AbsolutePath.make(task.directory)]
-          : [],
-      )
-
-      return yield* media
-        .loadOutgoing(remote, directory, [directory, ...related, remote.tmp], files)
+      return yield* uploads
+        .load(yield* remoteOf(request), channelId, files)
         .pipe(Effect.mapError((error) => new ToolCalls.ToolFailure({ message: error.message })))
     })
 
@@ -321,7 +306,7 @@ export const layer = Layer.effectDiscard(
 
       const [upload] = yield* attachments(request, channelId, [file])
 
-      if (upload === undefined || !Media.isImage(upload.contentType)) {
+      if (upload === undefined || !Files.isImage(upload.contentType)) {
         return yield* fail(`${file} is not a PNG, JPEG, GIF or WebP image.`)
       }
 

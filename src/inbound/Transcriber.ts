@@ -2,8 +2,9 @@ import { Context, Duration, Effect, FileSystem, HashMap, Layer, Option, Ref, Sch
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import path from "node:path"
+import { Files } from "../shared/Files.ts"
+import { Attachments } from "./Attachments.ts"
 import type { Inbound } from "./Inbound.ts"
-import { Media } from "./Media.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 
 const TIMEOUT = Duration.minutes(3)
@@ -59,7 +60,7 @@ export const layer = Layer.effect(
 
       const data = new Uint8Array(yield* response.arrayBuffer.pipe(Effect.mapError(failed("download"))))
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "wendell-voice-" }).pipe(Effect.mapError(failed("temp")))
-      const input = path.join(directory, `input${path.extname(Media.safeName(attachment.name)) || ".audio"}`)
+      const input = path.join(directory, `input${path.extname(Files.safeName(attachment.name)) || ".audio"}`)
       const wav = path.join(directory, "speech.wav")
 
       yield* fs.writeFile(input, data).pipe(Effect.mapError(failed("temp")))
@@ -105,7 +106,7 @@ export const layer = Layer.effect(
 
       if (Option.isNone(command)) return Option.none<string>()
 
-      const audio = message.attachments.filter((attachment) => isAudio(attachment) && attachment.size <= Media.MAX_INCOMING_BYTES)
+      const audio = message.attachments.filter((attachment) => isAudio(attachment) && attachment.size <= Attachments.MAX_BYTES)
 
       if (audio.length === 0) return Option.none<string>()
 

@@ -9,6 +9,7 @@ import { Memory } from "../../memory/Memory.ts"
 import { Models } from "../../opencode/Models.ts"
 import { Places } from "../../conversations/Places.ts"
 import { SessionKey } from "../../opencode/SessionKey.ts"
+import { truncate } from "../../shared/Text.ts"
 import { WendellConfig } from "../../config/WendellConfig.ts"
 import type { ToolCalls } from "../../tools/ToolCalls.ts"
 
@@ -81,11 +82,7 @@ type ScheduleInfo = Effect.Success<ReturnType<OpenCodeClient["experimental"]["sc
 
 const MAX_LABEL = 60
 
-const labelOf = (schedule: ScheduleInfo) => {
-  const label = schedule.name ?? schedule.action.prompt
-
-  return label.length <= MAX_LABEL ? label : `${label.slice(0, MAX_LABEL - 1)}…`
-}
+const labelOf = (schedule: ScheduleInfo) => truncate(schedule.name ?? schedule.action.prompt, MAX_LABEL)
 
 const whenOf = (schedule: ScheduleInfo) => {
   const { when } = schedule

@@ -1,6 +1,7 @@
 import { Clock, Context, Duration, Effect, HashMap, Layer, Option, Ref } from "effect"
 import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
 import { Inbound } from "../inbound/Inbound.ts"
+import { attribute, escape, isoDay } from "../shared/Text.ts"
 import { Memory } from "./Memory.ts"
 
 const ROOM_MESSAGES = 8
@@ -28,19 +29,13 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Recollection") {}
 
-const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-
-const attribute = (text: string) => escape(text).replaceAll('"', "&quot;")
-
-const day = (time: number) => new Date(time).toISOString().slice(0, 10)
-
 const renderNotes = (notes: ReadonlyArray<Memory.Note>) =>
   notes.length === 0
     ? "(nothing yet)"
     : notes
         .map(
           (note) =>
-            `- [${note.id}] ${escape(note.text)} (${day(note.updatedAt)}${note.expiresAt === undefined ? "" : `, until ${day(note.expiresAt)}`})`,
+            `- [${note.id}] ${escape(note.text)} (${isoDay(note.updatedAt)}${note.expiresAt === undefined ? "" : `, until ${isoDay(note.expiresAt)}`})`,
         )
         .join("\n")
 

@@ -27,6 +27,7 @@ import { Policy } from "../opencode/Policy.ts"
 import { Progress } from "./Progress.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
 import { Settings } from "../config/Settings.ts"
+import { isoDay } from "../shared/Text.ts"
 import { Tasks } from "../tasks/Tasks.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 
@@ -104,11 +105,9 @@ const conversationError =
 export const formatModel = (model: Model.Ref) =>
   `${model.providerID}/${model.id}${model.variant === undefined || model.variant === "default" ? "" : `#${model.variant}`}`
 
-const formatDate = (time: number) => new Date(time).toISOString().slice(0, 10)
-
 const describeTask = (task: Tasks.Task) =>
   `<#${task.threadId}> thread_id=${task.threadId} "${task.title}" (${task.status}, started by ${task.createdByName}, ` +
-  `last active ${formatDate(task.lastActivity)}, directory ${task.directory}): ${task.summary}`
+  `last active ${isoDay(task.lastActivity)}, directory ${task.directory}): ${task.summary}`
 
 const describeTasks = (tasks: ReadonlyArray<Tasks.Task>) => {
   if (tasks.length === 0) return "There are no tasks yet."

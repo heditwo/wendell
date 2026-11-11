@@ -5,7 +5,7 @@ import { Discord } from "../discord/Discord.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId } from "../shared/Ids.ts"
 import { Inbound } from "./Inbound.ts"
-import { Media } from "./Media.ts"
+import { Attachments } from "./Attachments.ts"
 import { Places } from "../conversations/Places.ts"
 import { Recent } from "./Recent.ts"
 import { Recollection } from "../memory/Recollection.ts"
@@ -35,7 +35,7 @@ export const layer = Layer.effectDiscard(
     const screen = yield* Screen.Service
     const places = yield* Places.Service
     const recent = yield* Recent.Service
-    const media = yield* Media.Service
+    const attachments = yield* Attachments.Service
     const transcriber = yield* Transcriber.Service
     const busyModes = yield* BusyModes.Service
     const recollection = yield* Recollection.Service
@@ -98,7 +98,7 @@ export const layer = Layer.effectDiscard(
       const routed = yield* Effect.forEach(batch, (item) =>
         (item.message.attachments.length === 0
           ? Effect.succeed<ReadonlyArray<Inbound.FileNote>>([])
-          : media.saveIncoming(conversation.remote, conversation.directory, item.message)
+          : attachments.save(conversation.remote, conversation.directory, item.message)
         ).pipe(Effect.map((files): Inbound.Routed => ({ message: item.message, route: item.route, files }))),
       )
 
@@ -134,7 +134,7 @@ export const layer = Layer.effectDiscard(
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
           busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
         },
-        routed.flatMap(({ files }) => Media.images(files)),
+        routed.flatMap(({ files }) => Attachments.images(files)),
       )
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,
