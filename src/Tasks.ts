@@ -13,7 +13,6 @@ export const Task = Schema.Struct({
   title: Schema.String,
   summary: Schema.String,
   status: Schema.Literals(["active", "done"]),
-  trusted: Schema.Boolean,
   createdBy: UserId,
   createdByName: Schema.String,
   createdAt: Schema.Number,

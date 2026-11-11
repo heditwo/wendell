@@ -54,16 +54,17 @@ flowchart LR
 - `Conversations.ts` owns sessions, their context entries and the turn watcher (👀, typing, status line, error and silence fallbacks).
 - `Fleet.ts` connects to paired servers (`Servers.ts`), creates directories and attaches the client MCP tools per directory. Tools are scoped to one location, so every directory needs its own attachment.
 - Tool calls go through a queue (`ToolCalls.ts`) to `ToolWorker.ts`, which avoids a dependency cycle between tools, tasks and conversations.
-- `Approvals.ts` answers permission requests: buttons in trusted conversations, rejection everywhere else.
-- `Models.ts` keeps the model choices (`.data/models.json`), validates models against the server's enabled chat models and searches them. `Conversations.ensure` picks the model for a new session: conversation, then server default, then `servers.<name>.model`. `Commands.ts` registers and answers `/model` (with autocomplete) and `/models`. Discord expects an answer within 3 seconds, so commands defer first. Only trusted people can change models.
+- `Approvals.ts` answers permission requests by the conversation's approval mode (`ApprovalModes.ts`, set with `/auto`): `auto` approves, `review` asks `Reviewer.ts` (the decision model, fails closed), `off` and everything the reviewer does not approve get buttons in the conversation. `.env` reads always get buttons. A Deny sends feedback, because a reject without a message ends the whole turn.
+- `Models.ts` keeps the model choices (`.data/models.json`), validates models against the server's enabled chat models and searches them. `Conversations.ensure` picks the model for a new session: conversation, then server default, then `servers.<name>.model`. `Commands.ts` registers and answers `/model` (with autocomplete) and `/models`. Discord expects an answer within 3 seconds, so commands defer first.
 - `Conversations.ts` archives Wendell's root sessions (`hideSessions`, default `true`) so the OpenCode desktop does not list them. Archived sessions still accept prompts.
-- Sub-tasks: `wendell_start_task` in a task thread creates a thread without a starter message in the parent task's channel (Discord has no threads inside threads). The sub-task gets a git worktree (`Fleet.worktree`) or shares the parent's directory, and inherits the parent's trust. `Tasks.Task.parentTaskId` links it to the parent. When it sets status `done`, `ToolWorker` delivers its summary to the parent task's conversation.
+- Sub-tasks: `wendell_start_task` in a task thread creates a thread without a starter message in the parent task's channel (Discord has no threads inside threads). The sub-task gets a git worktree (`Fleet.worktree`) or shares the parent's directory. `Tasks.Task.parentTaskId` links it to the parent. When it sets status `done`, `ToolWorker` delivers its summary to the parent task's conversation.
 - Each channel, thread or DM has one session. `SessionKey.ts` derives the session ID from the channel ID.
 
 ## Safety rules
 
-- `Policy.sessionPermissions` and `Access` are the security boundary. Guest sessions must stay read-only. A channel session is trusted only when everyone in its server is trusted. Trusted sessions keep the agent's own rules and must keep the guards (`external_directory`, `.env`, `question`). Subagents inherit their conversation's rules.
-- Only trusted people may press approval buttons.
+- Everyone who can talk to Wendell has full power. There are no trust tiers; do not add them back unless the user asks.
+- `Policy.sessionPermissions` keeps the agent's own rules and must keep the guards (`shell`, `external_directory`, `.env`, `question`). Subagents inherit their conversation's rules.
+- Never give the agent a tool that changes approval modes. Only people may change them, with `/auto`.
 - `servers.<name>.blockedProviders` is a hard rule (for example, a work account). Every model that Wendell selects must go through `Models.pick` or `Models.resolve`, which skip or refuse blocked providers. Never fall back to the agent's default model while providers are blocked. Never use a blocked provider in tests.
 - Never log tokens, message text or file contents. Never print `.data/servers.json`.
 - Discord content is untrusted. Escape it in prompts (`Inbound.render`).

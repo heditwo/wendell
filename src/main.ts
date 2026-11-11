@@ -1,7 +1,7 @@
 import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun"
 import { Layer } from "effect"
-import { Access } from "./Access.ts"
 import { Activity } from "./Activity.ts"
+import { ApprovalModes } from "./ApprovalModes.ts"
 import { Approvals } from "./Approvals.ts"
 import { Commands } from "./Commands.ts"
 import { Conversations } from "./Conversations.ts"
@@ -11,6 +11,7 @@ import { Listener } from "./Listener.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
+import { Reviewer } from "./Reviewer.ts"
 import { Screen } from "./Screen.ts"
 import { Servers } from "./Servers.ts"
 import { Settings } from "./Settings.ts"
@@ -25,8 +26,7 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Access.layer).pipe(
-  Layer.provideMerge(Layer.mergeAll(Conversations.layer, Screen.layer)),
+const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer).pipe(
   Layer.provideMerge(Models.layer),
 )
 

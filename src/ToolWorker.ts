@@ -1,7 +1,6 @@
 import { AbsolutePath } from "@opencode/client/effect"
 import { Clock, Deferred, Effect, Layer, Option, Stream } from "effect"
 import path from "node:path"
-import { Access } from "./Access.ts"
 import { Activity } from "./Activity.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
@@ -40,7 +39,6 @@ export const layer = Layer.effectDiscard(
     const fleet = yield* Fleet.Service
     const conversations = yield* Conversations.Service
     const places = yield* Places.Service
-    const access = yield* Access.Service
     const recent = yield* Recent.Service
     const models = yield* Models.Service
 
@@ -82,8 +80,6 @@ export const layer = Layer.effectDiscard(
         Effect.orElseSucceed(() => []),
       )
 
-      const trusted = yield* access.trusted(Inbound.member(message))
-
       return [
         `You started this task from <#${lobby}>: "${title}".`,
         `Your brief: ${brief}`,
@@ -92,7 +88,7 @@ export const layer = Layer.effectDiscard(
         ...earlier.map((line) => `${line.isMe ? "Wendell (you)" : line.authorName}: ${line.content}`),
         "",
         "The request that started the task:",
-        Inbound.render({ message, route: Routing.Route.Addressed(), trusted }),
+        Inbound.render({ message, route: Routing.Route.Addressed() }),
         "",
         "Start the work now. Post updates and the result in this thread with wendell_reply.",
       ].join("\n")
@@ -124,7 +120,6 @@ export const layer = Layer.effectDiscard(
         .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "Could not create the project directory." })))
 
       const now = yield* Clock.currentTimeMillis
-      const trusted = yield* access.trusted(Inbound.member(message))
 
       const task: Tasks.Task = {
         threadId,
@@ -136,7 +131,6 @@ export const layer = Layer.effectDiscard(
         title,
         summary: brief,
         status: "active",
-        trusted,
         createdBy: message.authorId,
         createdByName: message.authorName,
         createdAt: now,
@@ -152,7 +146,7 @@ export const layer = Layer.effectDiscard(
           trigger: Option.some({ channelId, messageId: message.id }),
         })
         .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "The thread exists, but the task could not start." })))
-      yield* Effect.logInfo("Started task", { server: remote.name, threadId, slug, trusted })
+      yield* Effect.logInfo("Started task", { server: remote.name, threadId, slug })
 
       return `Started the task in <#${threadId}>. The work continues there. Do not reply in this channel.`
     })
@@ -204,7 +198,6 @@ export const layer = Layer.effectDiscard(
         title,
         summary: brief,
         status: "active",
-        trusted: parent.trusted,
         createdBy: parent.createdBy,
         createdByName: parent.createdByName,
         createdAt: now,
@@ -317,16 +310,11 @@ export const layer = Layer.effectDiscard(
               .pipe(discordFailure("Could not post in the task thread."))
             yield* activity.spoke(channelId)
 
-            const trusted = yield* Option.match(message, {
-              onNone: () => Effect.succeed(false),
-              onSome: (found) => access.trusted(Inbound.member(found)),
-            })
-
             yield* conversations
               .deliver(
                 places.forTask(task),
                 [
-                  `${author} asked about this task from <#${channelId}> (trusted=${trusted}). Their request:`,
+                  `${author} asked about this task from <#${channelId}>. Their request:`,
                   text,
                   "Continue the work in this thread.",
                 ].join("\n"),
@@ -372,10 +360,6 @@ export const layer = Layer.effectDiscard(
                 }),
               ),
             )
-
-            if (conversation.tier !== "trusted") {
-              return yield* fail("Only trusted people can change the model, and this conversation is not trusted.")
-            }
 
             const resolved = yield* models.resolve(remote, conversation.directory, model).pipe(
               Effect.catchTags({

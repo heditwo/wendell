@@ -18,10 +18,6 @@ export const GuildId = snowflake.pipe(Schema.brand("GuildId"))
 
 export type GuildId = typeof GuildId.Type
 
-export const RoleId = snowflake.pipe(Schema.brand("RoleId"))
-
-export type RoleId = typeof RoleId.Type
-
 export const ServerName = Schema.String.check(
   Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,31}$/, { message: "Use lowercase letters, digits and dashes" }),
 ).pipe(Schema.brand("ServerName"))

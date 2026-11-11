@@ -1,7 +1,6 @@
 import { AbsolutePath } from "@opencode/client/effect"
 import { Context, Effect, Layer, Option } from "effect"
 import path from "node:path"
-import { Access } from "./Access.ts"
 import type { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
@@ -21,7 +20,6 @@ export interface Place {
 export interface Origin {
   readonly channelId: ChannelId
   readonly guildId: Option.Option<GuildId>
-  readonly member: Access.Member
   readonly authorId: UserId
   readonly authorName: string
 }
@@ -41,7 +39,6 @@ export const layer = Layer.effect(
     const config = yield* WendellConfig.Service
     const discord = yield* Discord.Service
     const tasks = yield* Tasks.Service
-    const access = yield* Access.Service
 
     const channelInfo = (channelId: ChannelId) =>
       discord.channel(channelId).pipe(
@@ -73,7 +70,6 @@ export const layer = Layer.effect(
       guildId: Option.fromUndefinedOr(task.guildId),
       remote: Option.getOrElse(fleet.byName(task.server), () => fleet.fallback),
       directory: AbsolutePath.make(task.directory),
-      tier: task.trusted ? "trusted" : "guest",
       title: task.title,
     })
 
@@ -87,7 +83,6 @@ export const layer = Layer.effect(
       if (Option.isNone(message.guildId)) {
         const remote = fleet.fallback
         const directory = AbsolutePath.make(path.join(remote.directory, `dm-${message.authorId}`))
-        const trusted = yield* access.trusted(message.member)
 
         yield* fleet.makeDirectory(remote, directory)
 
@@ -98,7 +93,6 @@ export const layer = Layer.effect(
             guildId: Option.none(),
             remote,
             directory,
-            tier: trusted ? "trusted" : "guest",
             title: `DM with ${message.authorName}`,
           },
           goal: Option.none(),
@@ -130,8 +124,6 @@ export const layer = Layer.effect(
           guildId: message.guildId,
           remote,
           directory: remote.directory,
-          // A channel session is shared by everyone in it, so it is only trusted when everyone is.
-          tier: access.everyoneTrusted(message.guildId) ? "trusted" : "guest",
           title: `Discord channel ${message.channelId}`,
         },
         goal: pick((channel) => channel.goal),
@@ -144,7 +136,6 @@ export const layer = Layer.effect(
       forOrigin({
         channelId: message.channelId,
         guildId: message.guildId,
-        member: Inbound.member(message),
         authorId: message.authorId,
         authorName: message.authorName,
       })

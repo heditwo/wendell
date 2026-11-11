@@ -1,10 +1,4 @@
 {
-  "owners": ["111111111111111111"],
-  "defaultAccess": "everyone",
-  "guilds": {
-    "222222222222222222": { "access": "administrators" },
-    "333333333333333333": { "access": { "role": "444444444444444444" } }
-  },
   "defaultServer": "omarchy",
   "servers": {
     "omarchy": {

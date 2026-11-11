@@ -12,7 +12,7 @@ Wendell has no AI setup of his own. He connects to one or more running [OpenCode
 - **Large work** splits into **sub-tasks**. In a task thread, Wendell can start a sub-task for an independent part of the work. Each sub-task gets its own thread in the same channel, with a link in the parent thread. When a sub-task is done, it reports to the parent task, and the parent continues.
 - **Later**, refer back from anywhere in the server: "Wendell, that todo app from yesterday, add dark mode". He finds the task and continues in its thread.
 - **While he works**, you see 👀 on your message, typing, and a status line such as *Running a command…*. The status line disappears when he answers.
-- **Approvals**: when the agent needs permission (for example to read outside its project directory), Wendell posts **Allow once**, **Always allow** and **Deny** buttons in the thread.
+- **Approvals**: when the agent needs permission (for example for a shell command, or to read outside its project directory), Wendell checks the conversation's approval mode. See [Approvals](#approvals).
 - He also joins in **without being addressed** in channels with a goal, and shortly after he has spoken in a conversation. A cheap decision model screens these messages first.
 
 ```mermaid
@@ -65,13 +65,13 @@ flowchart LR
 - Each channel, task thread and DM has one OpenCode session. Sessions use the server owner's agent, skills and MCP servers, plus Wendell's persona from `persona.md`.
 - Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 - Channels work in Wendell's root directory on the server (for example `~/wendell`). Each task gets a subdirectory (`~/wendell/todo-app`). Each DM gets `~/wendell/dm-<user ID>`.
-- A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory. A sub-task has the same access as its parent task.
+- A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory.
 - Wendell attaches his Discord tools to each server through OpenCode's client MCP: `wendell_reply`, `wendell_react`, `wendell_start_task`, `wendell_continue_task`, `wendell_update_task` and `wendell_set_model`. You do not install anything on the server.
 - The agent speaks only through these tools. When someone addresses Wendell and the turn ends without a reply, Wendell posts the turn's final text.
 
 ## Models
 
-Each conversation can use a different model. A trusted person can change it in two ways:
+Each conversation can use a different model. Change it in two ways:
 
 - Ask Wendell: "Wendell, use Opus here". He calls `wendell_set_model`.
 - Use the slash command `/model`. Type a part of the name, then select a model from the list. Set `scope` to *server default* to change the model for new conversations on that server.
@@ -87,24 +87,30 @@ Wendell selects the model for a new session in this order. He skips models of `b
 
 Wendell records these choices in `.data/models.json`, so they stay after a restart. A change of the server default applies only to new conversations. Wendell registers the slash commands in each Discord server when he starts. For a new Discord server, restart Wendell.
 
-## Access and safety
+## Approvals
 
-Wendell runs on your machine with your tools, so the access rules matter.
+Every shell command, every path outside Wendell's directory and every `.env` read needs approval. The shell runs with your full user rights, and OpenCode checks only the shell's working directory, not the paths in the command. Choose how Wendell answers with `/auto`, for each conversation:
 
-| Who | Where | What the agent can do |
-| --- | --- | --- |
-| Trusted people | Channels where everyone is trusted, their task threads, their DMs | Everything the server's agent allows: edits, commands, subagents, dev servers, tunnels. Paths outside Wendell's directory and `.env` files need an approval button. |
-| Everyone else | Channels with restricted access, their task threads, their DMs | Read inside Wendell's directory, search the web, use skills and Code Mode. Everything else is rejected. |
+| Mode | What happens |
+| --- | --- |
+| `review` (default) | The decision model reads the request with the conversation. It approves what clearly follows from the request. The rest gets buttons. If the review fails or times out, you get buttons. |
+| `auto` | Wendell approves every request. |
+| `off` | Every request gets **Allow once**, **Always allow** and **Deny** buttons. |
 
-A channel session is shared by everyone in the channel, so it gets full power only when everyone in that Discord server is trusted. Subagents inherit the rules of the conversation that started them, and their approval requests appear in that conversation.
+- Reading `.env` files, directly or in a shell command, always gets buttons.
+- `/auto` without a mode shows the current mode. Sub-tasks use their parent task's mode until someone sets their own.
+- Wendell has no tool to change the mode, so a message or a web page cannot turn on `auto`.
+- Approved shell commands show only in the log. Other approvals post a short note.
+- **Deny** tells the agent to continue without the request.
 
-Who is trusted:
+## Safety
 
-- By default, **everyone** is trusted: in every server, and in DMs. This fits servers where everyone may use your machine.
-- Set `defaultAccess`, or `guilds.<server ID>.access`, to `"administrators"` (the server owner and roles with Administrator) or `{ "role": "<role ID>" }`.
-- `owners` are trusted everywhere, including DMs, whatever the access rules say.
+Wendell runs on your machine with your tools. **Everyone who can talk to him has full power**: edits, commands, subagents, dev servers and tunnels. This includes everyone in the Discord servers that he is in, and everyone who shares a server with him, because they can DM him. Add Wendell only to servers where everyone may use your machine.
 
-Only trusted people can press approval buttons. For trusted sessions, your agent's own permission rules still apply, including your `deny` rules. To let everyone use more tools in channels, add actions to `servers.<name>.allow`. MCP tool actions are `<server>_<tool>`, so `"browse_*"` allows the browse MCP.
+- Your agent's own permission rules still apply, including your `deny` rules.
+- Paths outside Wendell's directory and `.env` files need an approval button. Anyone in the conversation can press it.
+- Subagents use the rules of the conversation that started them, and their approval requests appear in that conversation.
+- To allow more tools without approval, add actions to `servers.<name>.allow`. MCP tool actions are `<server>_<tool>`, so `"browse_*"` allows the browse MCP.
 
 Give Wendell a directory of his own on each server, such as `~/wendell`. Do not use your home directory.
 
@@ -140,7 +146,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 
    Repeat for more servers with other names. The token goes into `.data/servers.json` with mode `600`. It lasts 30 days. Pair again when `bun run doctor` reports that the token expired. Remove a server with `bun run unpair <name>`.
 
-6. Copy `wendell.example.json` to `wendell.json`. Set yourself as an owner, a model per server, and optionally access rules and channel goals.
+6. Copy `wendell.example.json` to `wendell.json`. Set a model per server, and optionally channel goals.
 
 7. Check the setup, then start Wendell:
 
@@ -153,15 +159,13 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 
 | Field | Meaning |
 | --- | --- |
-| `owners` | Discord user IDs that are trusted everywhere, whatever the access rules say. |
-| `defaultAccess` | Who is trusted in servers without their own rule, and in DMs: `"everyone"` (default), `"administrators"` or `{ "role": "<role ID>" }`. With a restricted default, only owners are trusted in DMs. |
-| `guilds.<server ID>.access` | The same, for one Discord server. |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |
 | `servers.<name>.agent` | Agent for Wendell's sessions. Default: the server's default agent. |
 | `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Pick a fast one, because chat should feel quick. `/model` can override it (see [Models](#models)). |
 | `servers.<name>.blockedProviders` | Provider IDs that Wendell must never use on this server, for example `["anthropic"]` for a work account. Wendell skips their models when he selects a model, refuses them in `/model` and `wendell_set_model`, and moves existing sessions off them. With blocked providers, set `servers.<name>.model`, because the agent's default could use a blocked provider. Subagents with their own model in the OpenCode config ignore this rule; `bun run doctor` warns about them. |
-| `servers.<name>.allow` | Extra permission actions for channels and untrusted tasks, such as `"browse_*"`. |
+| `servers.<name>.allow` | Permission actions that need no approval, such as `"browse_*"`. Shell commands always go through approvals. |
+| `servers.<name>.approvals` | Approval mode for conversations without their own: `"review"` (default), `"auto"` or `"off"`. |
 | `channels.<id>.server` | OpenCode server for this channel. |
 | `channels.<id>.goal.wakeWhen` | What Wendell listens for without being addressed. |
 | `channels.<id>.goal.engagement` | How Wendell answers. |
@@ -174,13 +178,14 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | --- | --- |
 | Wendell's voice and rules | `persona.md` |
 | What Wendell listens for | `goal.wakeWhen` in `wendell.json` |
-| Who has full power | `owners`, `defaultAccess`, `guilds` |
 | How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
+| How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.85`) |
+| How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |
 | How long Wendell waits to batch messages | `WENDELL_BATCH_WINDOW` |
 | The model of one conversation, or of a server | `/model`, or ask Wendell |
 
-Changes to `persona.md`, `model` and `allow` reach existing sessions after a restart. Tasks are recorded in `.data/tasks.json`, model choices in `.data/models.json`.
+Changes to `persona.md`, `model` and `allow` reach existing sessions after a restart. Tasks are recorded in `.data/tasks.json`, model choices in `.data/models.json`, approval modes in `.data/approvals.json`.
 
 ## Development
 

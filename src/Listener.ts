@@ -1,5 +1,4 @@
 import { Duration, Effect, Layer, Option, Stream } from "effect"
-import { Access } from "./Access.ts"
 import { Activity } from "./Activity.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
@@ -29,7 +28,6 @@ export const layer = Layer.effectDiscard(
     const conversations = yield* Conversations.Service
     const screen = yield* Screen.Service
     const places = yield* Places.Service
-    const access = yield* Access.Service
     const recent = yield* Recent.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
@@ -69,9 +67,8 @@ export const layer = Layer.effectDiscard(
       })
 
       const routeTaken = skip ? Routing.Route.Ignored() : candidate
-      const trusted = Routing.isActionable(routeTaken) ? yield* access.trusted(Inbound.member(message)) : false
 
-      return { message, place, route: routeTaken, trusted } satisfies Item
+      return { message, place, route: routeTaken } satisfies Item
     })
 
     const deliver = Effect.fn("Listener.deliver")(function* (channelId: ChannelId, batch: ReadonlyArray<Item>) {

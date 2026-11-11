@@ -1,5 +1,5 @@
 import { Context, Effect, FileSystem, Layer, Option, Schema } from "effect"
-import { ChannelId, GuildId, RoleId, ServerName, UserId } from "./Ids.ts"
+import { ChannelId, ServerName } from "./Ids.ts"
 import { Settings } from "./Settings.ts"
 
 export const Goal = Schema.Struct({
@@ -9,10 +9,21 @@ export const Goal = Schema.Struct({
 
 export interface Goal extends Schema.Schema.Type<typeof Goal> {}
 
+/**
+ * - `off`: every permission request gets approval buttons.
+ * - `review`: the decision model approves requests that clearly follow from the conversation; the rest get buttons.
+ * - `auto`: every request is approved.
+ */
+export const ApprovalMode = Schema.Literals(["off", "review", "auto"])
+
+export type ApprovalMode = typeof ApprovalMode.Type
+
 export const ServerPrefs = Schema.Struct({
   agent: Schema.optional(Schema.NonEmptyString),
   model: Schema.optional(Schema.NonEmptyString),
   allow: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  /** Approval mode for conversations without their own. Default: `review`. */
+  approvals: Schema.optional(ApprovalMode),
   /** Provider IDs that Wendell must never use on this server, such as a work account. */
   blockedProviders: Schema.optional(Schema.Array(Schema.NonEmptyString)),
 })
@@ -26,30 +37,9 @@ export const Channel = Schema.Struct({
 
 export interface Channel extends Schema.Schema.Type<typeof Channel> {}
 
-/** Who gets full power (shell and edits in task threads) in a Discord server. */
-export const Access = Schema.Union([
-  Schema.Literals(["everyone", "administrators"]),
-  Schema.Struct({ role: RoleId }),
-])
-
-export type Access = typeof Access.Type
-
-export const Guild = Schema.Struct({
-  access: Schema.optional(Access),
-})
-
-export interface Guild extends Schema.Schema.Type<typeof Guild> {}
-
 export const File = Schema.Struct({
   defaultServer: Schema.optional(ServerName),
   hideSessions: Schema.optional(Schema.Boolean),
-  owners: Schema.optional(Schema.Array(UserId)),
-  defaultAccess: Schema.optional(Access),
-  guilds: Schema.optional(
-    Schema.Record(Schema.String, Guild).check(
-      Schema.isPropertyNames(GuildId, { message: "Every key in guilds must be a Discord server ID" }),
-    ),
-  ),
   servers: Schema.optional(
     Schema.Record(Schema.String, ServerPrefs).check(
       Schema.isPropertyNames(ServerName, { message: "Every key in servers must be a paired server name" }),
@@ -68,9 +58,6 @@ export interface Interface {
   readonly defaultServer: Option.Option<ServerName>
   /** Archive Wendell's sessions, so the OpenCode desktop does not list them. */
   readonly hideSessions: boolean
-  readonly owners: ReadonlyArray<UserId>
-  readonly defaultAccess: Access
-  readonly accessFor: (guildId: GuildId) => Access
   readonly serverPrefs: (name: ServerName) => ServerPrefs
   readonly channel: (channelId: ChannelId) => Option.Option<Channel>
 }
@@ -92,9 +79,6 @@ export const describeGoal = (goal: Goal) =>
 export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
   hideSessions: file.hideSessions ?? true,
-  owners: file.owners ?? [],
-  defaultAccess: file.defaultAccess ?? "everyone",
-  accessFor: (guildId) => file.guilds?.[guildId]?.access ?? file.defaultAccess ?? "everyone",
   serverPrefs: (name) => file.servers?.[name] ?? {},
   channel: (channelId) => Option.fromNullishOr(file.channels?.[channelId]),
 })

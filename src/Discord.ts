@@ -39,7 +39,6 @@ export interface ButtonPress {
   readonly member: {
     readonly userId: UserId
     readonly guildId: Option.Option<GuildId>
-    readonly roles: ReadonlyArray<string>
   }
 }
 
@@ -61,7 +60,6 @@ export interface CommandCall {
   readonly member: {
     readonly userId: UserId
     readonly guildId: Option.Option<GuildId>
-    readonly roles: ReadonlyArray<string>
   }
 }
 
@@ -96,12 +94,10 @@ export interface Interface {
   /** Replaces Wendell's slash commands in every server he is in. Returns the number of servers. */
   readonly registerCommands: (commands: ReadonlyArray<CommandSpec>) => Effect.Effect<number, DiscordError>
   readonly answerAutocomplete: (call: CommandCall, choices: ReadonlyArray<Choice>) => Effect.Effect<void, DiscordError>
-  readonly answerCommand: (call: CommandCall, text: string, ephemeral: boolean) => Effect.Effect<void, DiscordError>
   /** Shows "Wendell is thinking…". Answer within 15 minutes with `editCommandAnswer`. */
   readonly deferCommand: (call: CommandCall, ephemeral: boolean) => Effect.Effect<void, DiscordError>
   readonly editCommandAnswer: (call: CommandCall, text: string) => Effect.Effect<void, DiscordError>
   readonly channel: (channelId: ChannelId) => Effect.Effect<ChannelInfo, DiscordError>
-  readonly guild: (guildId: GuildId) => Effect.Effect<GuildInfo, DiscordError>
   readonly transcript: (
     channelId: ChannelId,
     before: Option.Option<MessageId>,
@@ -127,8 +123,6 @@ export interface Interface {
   readonly createThread: (channelId: ChannelId, name: string) => Effect.Effect<ChannelId, DiscordError>
   /** Replaces the pressed message's text and removes its buttons. */
   readonly answerPress: (press: ButtonPress, text: string) => Effect.Effect<void, DiscordError>
-  /** Answers only the person who pressed, and keeps the buttons. */
-  readonly answerPressPrivately: (press: ButtonPress, text: string) => Effect.Effect<void, DiscordError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Discord") {}
@@ -139,7 +133,6 @@ const MAX_MESSAGE_LENGTH = 2000
 const MAX_THREAD_NAME = 100
 const ONE_WEEK_MINUTES = 10_080
 const PUBLIC_THREAD = 11
-const ADMINISTRATOR = 1n << 3n
 const INTERACTION_APPLICATION_COMMAND = 2
 const INTERACTION_MESSAGE_COMPONENT = 3
 const INTERACTION_AUTOCOMPLETE = 4
@@ -151,7 +144,6 @@ const MAX_CHOICES = 25
 const MAX_CHOICE_LENGTH = 100
 const COMPONENT_BUTTON = 2
 const RESPONSE_UPDATE_MESSAGE = 7
-const RESPONSE_CHANNEL_MESSAGE = 4
 const FLAG_EPHEMERAL = 64
 
 const buttonStyles = { primary: 1, secondary: 2, success: 3, danger: 4 } as const
@@ -181,7 +173,6 @@ const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchDa
   authorId: UserId.make(data.author.id),
   authorName: data.member?.nick ?? displayName(data.author),
   authorIsBot: data.author.bot === true || data.author.id === me,
-  memberRoles: data.member?.roles ?? [],
   content: data.content,
   mentionsMe: data.mentions.some((user) => user.id === me),
   repliesToMe: data.referenced_message?.author.id === me,
@@ -207,7 +198,6 @@ const toButtonPress = (interaction: DiscordTypes.APIInteraction): Option.Option<
     member: {
       userId: UserId.make(user.id),
       guildId: Option.fromNullishOr(interaction.guild_id).pipe(Option.map(GuildId.make)),
-      roles: interaction.member?.roles ?? [],
     },
   })
 }
@@ -240,7 +230,6 @@ const toCommandCall = (interaction: DiscordTypes.APIInteraction, wanted: number)
     member: {
       userId: UserId.make(user.id),
       guildId: Option.fromNullishOr(interaction.guild_id).pipe(Option.map(GuildId.make)),
-      roles: interaction.member?.roles ?? [],
     },
   })
 }
@@ -265,20 +254,6 @@ const make = Effect.gen(function* () {
       rest.getChannel(channelId).pipe(Effect.map(describeChannel), discordError("Discord.channel")),
   })
 
-  const guildCache = yield* Cache.make({
-    capacity: 100,
-    timeToLive: Duration.minutes(10),
-    lookup: (guildId: GuildId) =>
-      Effect.all([rest.getGuild(guildId), rest.listGuildRoles(guildId)]).pipe(
-        Effect.map(([guild, roles]) => ({
-          ownerId: guild.owner_id,
-          administratorRoles: new Set(
-            (roles ?? []).flatMap((role) => ((BigInt(role.permissions) & ADMINISTRATOR) === ADMINISTRATOR ? [role.id] : [])),
-          ),
-        })),
-        discordError("Discord.guild"),
-      ),
-  })
 
   const messages = gateway
     .fromDispatch("MESSAGE_CREATE")
@@ -341,21 +316,6 @@ const make = Effect.gen(function* () {
     (effect) => discordError("Discord.answerAutocomplete")(effect),
   )
 
-  const answerCommand = Effect.fn("Discord.answerCommand")(
-    function* (call: CommandCall, text: string, ephemeral: boolean) {
-      yield* rest.createInteractionResponse(call.interactionId, call.token, {
-        payload: {
-          type: RESPONSE_CHANNEL_MESSAGE,
-          data: {
-            content: truncate(text, MAX_MESSAGE_LENGTH),
-            flags: ephemeral ? FLAG_EPHEMERAL : undefined,
-            allowed_mentions: { parse: [] },
-          },
-        },
-      })
-    },
-    (effect) => discordError("Discord.answerCommand")(effect),
-  )
 
   const deferCommand = Effect.fn("Discord.deferCommand")(
     function* (call: CommandCall, ephemeral: boolean) {
@@ -496,17 +456,6 @@ const make = Effect.gen(function* () {
     (effect) => discordError("Discord.answerPress")(effect),
   )
 
-  const answerPressPrivately = Effect.fn("Discord.answerPressPrivately")(
-    function* (press: ButtonPress, text: string) {
-      yield* rest.createInteractionResponse(press.interactionId, press.token, {
-        payload: {
-          type: RESPONSE_CHANNEL_MESSAGE,
-          data: { content: truncate(text, MAX_MESSAGE_LENGTH), flags: FLAG_EPHEMERAL, allowed_mentions: { parse: [] } },
-        },
-      })
-    },
-    (effect) => discordError("Discord.answerPressPrivately")(effect),
-  )
 
   return Service.of({
     me,
@@ -516,11 +465,9 @@ const make = Effect.gen(function* () {
     autocompletes: commandsOf(INTERACTION_AUTOCOMPLETE),
     registerCommands,
     answerAutocomplete,
-    answerCommand,
     deferCommand,
     editCommandAnswer,
     channel: (channelId) => Cache.get(channelCache, channelId),
-    guild: (guildId) => Cache.get(guildCache, guildId),
     transcript,
     send,
     edit,
@@ -531,7 +478,6 @@ const make = Effect.gen(function* () {
     startThread,
     createThread,
     answerPress,
-    answerPressPrivately,
   })
 })
 

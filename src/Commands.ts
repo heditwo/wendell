@@ -1,5 +1,5 @@
-import { Effect, Layer, Option, Stream } from "effect"
-import { Access } from "./Access.ts"
+import { Effect, Layer, Option, Schema, Stream } from "effect"
+import { ApprovalModes } from "./ApprovalModes.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
@@ -24,7 +24,35 @@ const specs: ReadonlyArray<Discord.CommandSpec> = [
     ],
   },
   { name: "models", description: "Show the model of this conversation and the server default.", options: [] },
+  {
+    name: "auto",
+    description: "Choose how Wendell handles permission requests here. Without a mode, show the current one.",
+    options: [
+      {
+        name: "mode",
+        description: "How Wendell answers permission requests in this conversation.",
+        required: false,
+        autocomplete: false,
+        choices: [
+          { name: "review: approve what clearly fits the request, ask about the rest", value: "review" },
+          { name: "auto: approve everything", value: "auto" },
+          { name: "off: always ask", value: "off" },
+        ],
+      },
+    ],
+  },
 ]
+
+const isMode = Schema.is(ApprovalModes.Mode)
+
+const modeMeaning: Record<ApprovalModes.Mode, string> = {
+  off: "I post approval buttons for every request.",
+  review: "I approve requests that clearly fit what you asked for, and post buttons for the rest.",
+  auto: "I approve every request without asking.",
+}
+
+const describeMode = (mode: ApprovalModes.Mode) =>
+  `**${mode}**. ${modeMeaning[mode]} Reading \`.env\` files always needs a person.`
 
 const option = (call: Discord.CommandCall, name: string) =>
   Option.fromNullishOr(call.options.find((candidate) => candidate.name === name)).pipe(Option.map((found) => found.value))
@@ -32,7 +60,6 @@ const option = (call: Discord.CommandCall, name: string) =>
 const origin = (call: Discord.CommandCall): Places.Origin => ({
   channelId: call.channelId,
   guildId: call.member.guildId,
-  member: call.member,
   authorId: call.member.userId,
   authorName: call.userName,
 })
@@ -41,11 +68,11 @@ const origin = (call: Discord.CommandCall): Places.Origin => ({
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const discord = yield* Discord.Service
-    const access = yield* Access.Service
     const places = yield* Places.Service
     const models = yield* Models.Service
     const conversations = yield* Conversations.Service
     const fleet = yield* Fleet.Service
+    const approvalModes = yield* ApprovalModes.Service
 
     const describe = Effect.fn("Commands.describe")(function* (place: Places.Place, model: Option.Option<string>) {
       if (Option.isNone(model)) return "the agent's default"
@@ -58,10 +85,6 @@ export const layer = Layer.effectDiscard(
     })
 
     const changeModel = Effect.fn("Commands.changeModel")(function* (call: Discord.CommandCall) {
-      if (!(yield* access.trusted(call.member))) {
-        return yield* discord.answerCommand(call, "Only people with access to Wendell's tools can change the model.", true)
-      }
-
       const scope = Option.getOrElse(option(call, "scope"), () => "conversation")
 
       yield* discord.deferCommand(call, false)
@@ -112,8 +135,37 @@ export const layer = Layer.effectDiscard(
       yield* discord.editCommandAnswer(call, answer)
     })
 
+    const approvals = Effect.fn("Commands.approvals")(function* (call: Discord.CommandCall) {
+      const requested = Option.filter(option(call, "mode"), isMode)
+
+      yield* discord.deferCommand(call, Option.isNone(requested))
+
+      const answer = yield* Effect.gen(function* () {
+        const place = yield* places.forOrigin(origin(call))
+        const { remote, channelId } = place.conversation
+
+        if (Option.isNone(requested)) {
+          return `Approvals in this conversation: ${describeMode(yield* approvalModes.modeFor(remote, channelId))}`
+        }
+
+        yield* approvalModes.set(channelId, requested.value)
+
+        return `Approvals in this conversation: ${describeMode(requested.value)}`
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not change the approval mode", { cause }).pipe(
+            Effect.as("I could not change the approval mode. Try again."),
+          ),
+        ),
+      )
+
+      yield* discord.editCommandAnswer(call, answer)
+    })
+
     const command = (call: Discord.CommandCall) => {
       if (call.name === "model") return changeModel(call)
+
+      if (call.name === "auto") return approvals(call)
 
       if (call.name === "models") return showModels(call)
 
@@ -127,8 +179,6 @@ export const layer = Layer.effectDiscard(
       )
 
       const choices = yield* Effect.gen(function* () {
-        if (!(yield* access.trusted(call.member))) return []
-
         const place = yield* places.forOrigin(origin(call))
         const found = yield* models.search(place.conversation.remote, place.conversation.directory, query, MAX_CHOICES)
 

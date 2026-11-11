@@ -10,7 +10,6 @@ export const Message = Schema.Struct({
   authorId: UserId,
   authorName: Schema.String,
   authorIsBot: Schema.Boolean,
-  memberRoles: Schema.Array(Schema.String),
   content: Schema.String,
   mentionsMe: Schema.Boolean,
   repliesToMe: Schema.Boolean,
@@ -21,16 +20,9 @@ export interface Message extends Schema.Schema.Type<typeof Message> {}
 export interface Routed {
   readonly message: Message
   readonly route: Routing.Route
-  readonly trusted: boolean
 }
 
 export const isDirect = (message: Message) => Option.isNone(message.guildId)
-
-export const member = (message: Message) => ({
-  userId: message.authorId,
-  guildId: message.guildId,
-  roles: message.memberRoles,
-})
 
 const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 
@@ -43,9 +35,9 @@ const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Rou
   Watched: ({ goal }) => Option.some(WendellConfig.describeGoal(goal)),
 })
 
-export const render = ({ message, route, trusted }: Routed) => {
+export const render = ({ message, route }: Routed) => {
   const lines = [
-    `<message id="${message.id}" author="${escape(message.authorName)}" author_id="${message.authorId}" trusted="${trusted}">`,
+    `<message id="${message.id}" author="${escape(message.authorName)}" author_id="${message.authorId}">`,
     `<guidance>${Routing.guidance(route)}</guidance>`,
   ]
 

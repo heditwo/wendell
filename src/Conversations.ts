@@ -45,7 +45,6 @@ export interface Conversation {
   readonly guildId: Option.Option<GuildId>
   readonly remote: Fleet.Remote
   readonly directory: AbsolutePath
-  readonly tier: Policy.Tier
   readonly title: string
 }
 
@@ -205,9 +204,7 @@ export const layer = Layer.effect(
               'When you call update_task with status "done", your summary is reported to the parent task automatically.',
             ],
           }),
-          conversation.tier === "trusted"
-            ? "You can edit files and run commands in your working directory. For long-running processes such as dev servers or tunnels, use background shell jobs."
-            : "The person who started this task cannot approve edits or commands, so this task is read-only.",
+          "You can edit files and run commands in your working directory. For long-running processes such as dev servers or tunnels, use background shell jobs.",
           "Keep the task record current with update_task after meaningful progress.",
           "For a large, independent part of the work, call start_task without message_id to start a sub-task in its own thread.",
           ...(subtasks.length === 0
@@ -223,9 +220,7 @@ export const layer = Layer.effect(
         conversation.kind === "dm"
           ? "This is a private DM. You can work here directly; DMs have no threads."
           : "This is a shared channel. Answer quick questions here. For real work, call start_task to move it into its own thread.",
-        conversation.tier === "trusted"
-          ? "You can use the full setup here: edit files, run commands and use subagents."
-          : "This conversation is read-only: commands, edits and subagents are rejected.",
+        "You can use the full setup here: edit files, run commands and use subagents.",
         "Tasks in this server, most recent first. When someone refers to earlier work, find it here and use continue_task:",
         describeTasks(recent),
       ].join("\n")
@@ -278,7 +273,7 @@ export const layer = Layer.effect(
       if (!HashMap.has(yield* Ref.get(prepared), key)) {
         yield* client.session.update({
           sessionID,
-          permissions: Policy.sessionPermissions(conversation.tier, conversation.remote.prefs.allow ?? []),
+          permissions: Policy.sessionPermissions(conversation.remote.prefs.allow ?? []),
           // Also hides sessions that older versions of Wendell created.
           archived: config.hideSessions ? true : undefined,
         })
@@ -314,7 +309,7 @@ export const layer = Layer.effect(
           }),
           model,
           metadata: { discordChannelId: conversation.channelId, client: Policy.CLIENT_NAME, kind: conversation.kind },
-          permissions: Policy.sessionPermissions(conversation.tier, remote.prefs.allow ?? []),
+          permissions: Policy.sessionPermissions(remote.prefs.allow ?? []),
         })
 
         if (config.hideSessions) yield* remote.client.session.update({ sessionID, archived: true })
@@ -323,7 +318,6 @@ export const layer = Layer.effect(
           server: remote.name,
           kind: conversation.kind,
           channelId: conversation.channelId,
-          tier: conversation.tier,
         })
       }
 
@@ -424,6 +418,7 @@ export const layer = Layer.effect(
             "session.tool.input.started",
             "session.execution.succeeded",
             "session.execution.failed",
+            "session.execution.interrupted",
           ],
         })
         .pipe(
