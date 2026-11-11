@@ -5,6 +5,7 @@ import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import type { ChannelId } from "./Ids.ts"
+import { Policy } from "./Policy.ts"
 import { Reviewer } from "./Reviewer.ts"
 import { SessionKey } from "./SessionKey.ts"
 import { Tasks } from "./Tasks.ts"
@@ -16,8 +17,6 @@ const MAX_RESOURCE = 300
 const DENIED =
   "A person in Discord denied this request. Do not try it another way. " +
   "Continue without it, or tell them briefly what you need and why."
-
-const SECRET_FILE = /(^|[\\/])[^\\/]*\.env(\.[^\\/]*)?$/
 
 interface Pending {
   readonly remote: Fleet.Remote
@@ -56,7 +55,7 @@ export const describeRequest = (action: string, resources: ReadonlyArray<string>
 
 /** Reading `.env` files, directly or in a shell command, always needs a person, whatever the approval mode. */
 export const touchesSecrets = (action: string, resources: ReadonlyArray<string>) =>
-  (action === "read" && resources.some((resource) => SECRET_FILE.test(resource))) ||
+  (action === "read" && resources.some(Policy.isSecretFile)) ||
   (action === "shell" && resources.some((command) => /\.env\b/.test(command)))
 
 /**

@@ -15,6 +15,8 @@ import {
   Schema,
   Stream,
 } from "effect"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { Activity } from "./Activity.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
@@ -65,7 +67,13 @@ export class ConversationError extends Schema.TaggedError<ConversationError>()("
 
 export interface Interface {
   readonly exists: (conversation: Conversation) => Effect.Effect<boolean, ConversationError>
-  readonly deliver: (conversation: Conversation, text: string, turn: Turn) => Effect.Effect<void, ConversationError>
+  /** `images` are absolute paths on the server. The model sees them with the prompt. */
+  readonly deliver: (
+    conversation: Conversation,
+    text: string,
+    turn: Turn,
+    images?: ReadonlyArray<AbsolutePath>,
+  ) => Effect.Effect<void, ConversationError>
   /** The conversation behind one of Wendell's sessions, if it was prepared by this process. */
   readonly forSession: (server: string, sessionID: string) => Effect.Effect<Option.Option<Conversation>>
   /** Wendell's session at the top of a subagent tree, or none when the session is not Wendell's. */
@@ -491,7 +499,7 @@ export const layer = Layer.effect(
     })
 
     const deliver = Effect.fn("Conversations.deliver")(
-      function* (conversation: Conversation, text: string, turn: Turn) {
+      function* (conversation: Conversation, text: string, turn: Turn, images: ReadonlyArray<AbsolutePath> = []) {
         const sessionID = yield* ensure(conversation)
         const inboxID = SessionMessage.ID.create()
         const since = yield* Clock.currentTimeMillis
@@ -504,7 +512,13 @@ export const layer = Layer.effect(
           Effect.forkIn(scope),
         )
         yield* Deferred.await(ready).pipe(Effect.timeout(Duration.seconds(10)), Effect.ignore)
-        yield* conversation.remote.client.session.prompt({ sessionID, id: inboxID, text, delivery: "queue" })
+        yield* conversation.remote.client.session.prompt({
+          sessionID,
+          id: inboxID,
+          text,
+          files: images.length === 0 ? undefined : images.map((image) => ({ uri: pathToFileURL(image).href, name: path.basename(image) })),
+          delivery: "queue",
+        })
       },
       (effect, conversation) => conversationError("Conversations.deliver", conversation)(effect),
     )

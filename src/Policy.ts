@@ -2,6 +2,11 @@ import type { Permission } from "@opencode/client/effect"
 
 export const CLIENT_NAME = "wendell"
 
+const SECRET_FILE = /(^|[\\/])[^\\/]*\.env(\.[^\\/]*)?$/
+
+/** `.env`, `prod.env`, `.env.local` and the like, anywhere in a path. */
+export const isSecretFile = (file: string) => SECRET_FILE.test(file)
+
 const rule = (action: string, resource: string, effect: Permission.Effect): Permission.Rule => ({
   action,
   resource,

@@ -174,12 +174,23 @@ const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchDa
   authorName: data.member?.nick ?? displayName(data.author),
   authorIsBot: data.author.bot === true || data.author.id === me,
   content: data.content,
+  attachments: data.attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.filename,
+    url: attachment.url,
+    contentType: Option.fromNullishOr(attachment.content_type),
+    size: attachment.size,
+  })),
+  stickers: (data.sticker_items ?? []).map((sticker) => sticker.name),
   mentionsMe: data.mentions.some((user) => user.id === me),
   repliesToMe: data.referenced_message?.author.id === me,
 })
 
+const hasSubstance = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
+  data.content.trim() !== "" || data.attachments.length > 0 || (data.sticker_items ?? []).length > 0
+
 const isConversational = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
-  (data.type === MESSAGE_TYPE_DEFAULT || data.type === MESSAGE_TYPE_REPLY) && data.content.trim() !== ""
+  (data.type === MESSAGE_TYPE_DEFAULT || data.type === MESSAGE_TYPE_REPLY) && hasSubstance(data)
 
 const toButtonPress = (interaction: DiscordTypes.APIInteraction): Option.Option<ButtonPress> => {
   if (interaction.type !== INTERACTION_MESSAGE_COMPONENT) return Option.none()
@@ -343,7 +354,9 @@ const make = Effect.gen(function* () {
         id: MessageId.make(message.id),
         authorName: displayName(message.author),
         isMe: message.author.id === me,
-        content: message.content,
+        content: [message.content, ...message.attachments.map((attachment) => `[attachment: ${attachment.filename}]`)]
+          .filter((part) => part.trim() !== "")
+          .join(" "),
       }))
     },
     (effect) => discordError("Discord.transcript")(effect),

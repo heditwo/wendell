@@ -1,7 +1,7 @@
 import { Context, Duration, Effect, Layer, Option } from "effect"
 import { Discord } from "./Discord.ts"
 import type { Fleet } from "./Fleet.ts"
-import type { Inbound } from "./Inbound.ts"
+import { Inbound } from "./Inbound.ts"
 import { Settings } from "./Settings.ts"
 import { WendellConfig } from "./WendellConfig.ts"
 
@@ -32,7 +32,7 @@ export const layer = Layer.effect(
 
       const transcript = [
         ...prior.map((line) => `${line.isMe ? "Wendell (agent)" : line.authorName}: ${line.content.slice(0, PRIOR_MESSAGE_CHARS)}`),
-        `${message.authorName}: ${message.content}`,
+        `${message.authorName}: ${Inbound.plainText(message)}`,
       ].join("\n")
 
       const result = yield* remote.client.experimental.generate.decisions({

@@ -7,6 +7,7 @@ import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import type { ChannelId, MessageId } from "./Ids.ts"
 import { Inbound } from "./Inbound.ts"
+import { Media } from "./Media.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
@@ -72,6 +73,7 @@ export const layer = Layer.effectDiscard(
 
     const handoff = Effect.fn("ToolWorker.handoff")(function* (
       lobby: ChannelId,
+      directory: string,
       message: Inbound.Message,
       brief: string,
       title: string,
@@ -88,7 +90,7 @@ export const layer = Layer.effectDiscard(
         ...earlier.map((line) => `${line.isMe ? "Wendell (you)" : line.authorName}: ${line.content}`),
         "",
         "The request that started the task:",
-        Inbound.render({ message, route: Routing.Route.Addressed() }),
+        Inbound.render({ message, route: Routing.Route.Addressed(), files: Media.plan(directory, message) }),
         "",
         "Start the work now. Post updates and the result in this thread with wendell_reply.",
       ].join("\n")
@@ -140,11 +142,12 @@ export const layer = Layer.effectDiscard(
       yield* tasks.create(task).pipe(Effect.mapError(saveFailure))
       yield* activity.spoke(channelId)
       yield* conversations
-        .deliver(places.forTask(task), yield* handoff(channelId, message, brief, title), {
-          expectReply: true,
-          progress: true,
-          trigger: Option.some({ channelId, messageId: message.id }),
-        })
+        .deliver(
+          places.forTask(task),
+          yield* handoff(channelId, remote.directory, message, brief, title),
+          { expectReply: true, progress: true, trigger: Option.some({ channelId, messageId: message.id }) },
+          Media.images(Media.plan(remote.directory, message)),
+        )
         .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "The thread exists, but the task could not start." })))
       yield* Effect.logInfo("Started task", { server: remote.name, threadId, slug })
 

@@ -15,6 +15,8 @@ export interface Remote {
   readonly url: string
   /** Wendell's root directory on the server. Channels work here; tasks get subdirectories. */
   readonly directory: AbsolutePath
+  /** The server's temporary directory, where tools such as `image_generate` save their files. */
+  readonly tmp: AbsolutePath
   readonly client: OpenCodeClient
   readonly prefs: WendellConfig.ServerPrefs
 }
@@ -26,6 +28,15 @@ export interface Interface {
   /** Makes Wendell's Discord tools available to sessions in `directory`. Tools are scoped to one location. */
   readonly attach: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void>
   readonly makeDirectory: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void, ServerRequestError>
+  /** Writes a file on the server, which may be another machine. Creates missing parent directories. */
+  readonly writeFile: (remote: Remote, file: AbsolutePath, data: Uint8Array) => Effect.Effect<void, ServerRequestError>
+  /** Reads `relative` inside `root` on the server. The server refuses paths outside `root`. */
+  readonly readFile: (
+    remote: Remote,
+    root: AbsolutePath,
+    relative: string,
+    maxBytes: number,
+  ) => Effect.Effect<Uint8Array, ServerRequestError | FileTooLarge>
   /**
    * When `directory` is inside a git repository, creates a worktree of it named `name` and returns
    * the same directory inside the worktree. Returns none when there is no repository.
@@ -53,6 +64,12 @@ export class ServerRequestError extends Schema.TaggedError<ServerRequestError>()
   server: Schema.String,
   operation: Schema.String,
   cause: Schema.Defect(),
+}) {}
+
+export class FileTooLarge extends Schema.TaggedError<FileTooLarge>()("Fleet.FileTooLarge", {
+  path: Schema.String,
+  size: Schema.Number,
+  limit: Schema.Number,
 }) {}
 
 export const authorization = (token: Redacted.Redacted) => `Basic ${btoa(`opencode:${Redacted.value(token)}`)}`
@@ -116,34 +133,64 @@ export const layer = Layer.effect(
       }).pipe(Semaphore.withPermits(attaching, 1))
     })
 
-    const makeDirectory = Effect.fn("Fleet.makeDirectory")(
-      function* (remote: Remote, directory: AbsolutePath) {
-        const key = `${remote.name}:${directory}`
+    const requestError = (remote: Remote, operation: string) => (cause: unknown) =>
+      new ServerRequestError({ server: remote.name, operation, cause })
 
-        if (HashMap.has(yield* Ref.get(created), key)) return
+    const tokenFor = (remote: Remote, operation: string) =>
+      Option.match(Option.fromUndefinedOr(tokens.get(remote.name)), {
+        onNone: () => Effect.fail(new ServerRequestError({ server: remote.name, operation, cause: "The server is not connected." })),
+        onSome: Effect.succeed,
+      })
 
-        const token = tokens.get(remote.name)
+    const writeFile = Effect.fn("Fleet.writeFile")(function* (remote: Remote, file: AbsolutePath, data: Uint8Array) {
+      const token = yield* tokenFor(remote, "Fleet.writeFile")
+      const url = new URL(`${remote.url}/api/experimental/fs/write`)
 
-        if (token === undefined) return
+      url.searchParams.set("location[directory]", remote.directory)
+      url.searchParams.set("path", file)
 
-        const url = new URL(`${remote.url}/api/experimental/fs/write`)
+      const request = HttpClientRequest.post(url).pipe(HttpClientRequest.bodyUint8Array(data, "application/octet-stream"))
 
-        url.searchParams.set("location[directory]", remote.directory)
-        url.searchParams.set("path", path.join(directory, MARKER))
+      yield* authed(http, token)
+        .execute(request)
+        .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk), Effect.mapError(requestError(remote, "Fleet.writeFile")))
+    })
 
-        const request = HttpClientRequest.post(url).pipe(
-          HttpClientRequest.bodyText("Created by Wendell.\n", "application/octet-stream"),
-        )
+    const readFile = Effect.fn("Fleet.readFile")(function* (
+      remote: Remote,
+      root: AbsolutePath,
+      relative: string,
+      maxBytes: number,
+    ) {
+      const token = yield* tokenFor(remote, "Fleet.readFile")
+      const encoded = relative.split("/").map(encodeURIComponent).join("/")
+      const url = new URL(`${remote.url}/api/fs/read/${encoded}`)
 
-        yield* authed(http, token).execute(request).pipe(Effect.flatMap(HttpClientResponse.filterStatusOk))
-        yield* Ref.update(created, HashMap.set(key, true))
-      },
-      (effect, remote) =>
-        Effect.mapError(
-          effect,
-          (cause) => new ServerRequestError({ server: remote.name, operation: "Fleet.makeDirectory", cause }),
-        ),
-    )
+      url.searchParams.set("location[directory]", root)
+
+      const response = yield* authed(http, token)
+        .execute(HttpClientRequest.get(url))
+        .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk), Effect.mapError(requestError(remote, "Fleet.readFile")))
+
+      const declared = Number(response.headers["content-length"] ?? "0")
+
+      if (declared > maxBytes) return yield* new FileTooLarge({ path: relative, size: declared, limit: maxBytes })
+
+      const body = new Uint8Array(yield* response.arrayBuffer.pipe(Effect.mapError(requestError(remote, "Fleet.readFile"))))
+
+      if (body.byteLength > maxBytes) return yield* new FileTooLarge({ path: relative, size: body.byteLength, limit: maxBytes })
+
+      return body
+    })
+
+    const makeDirectory = Effect.fn("Fleet.makeDirectory")(function* (remote: Remote, directory: AbsolutePath) {
+      const key = `${remote.name}:${directory}`
+
+      if (HashMap.has(yield* Ref.get(created), key)) return
+
+      yield* writeFile(remote, AbsolutePath.make(path.join(directory, MARKER)), new TextEncoder().encode("Created by Wendell.\n"))
+      yield* Ref.update(created, HashMap.set(key, true))
+    })
 
     const worktree = Effect.fn("Fleet.worktree")(
       function* (remote: Remote, directory: AbsolutePath, name: string) {
@@ -184,6 +231,7 @@ export const layer = Layer.effect(
         name: server.name,
         url: server.url,
         directory: AbsolutePath.make(server.directory),
+        tmp: AbsolutePath.make(info.paths.tmp),
         client,
         prefs: config.serverPrefs(server.name),
       }
@@ -228,7 +276,7 @@ export const layer = Layer.effect(
 
     yield* Effect.forEach(remotes, (remote) => attach(remote, remote.directory), { discard: true })
 
-    return Service.of({ remotes, byName, fallback: fallback.value, attach, makeDirectory, worktree })
+    return Service.of({ remotes, byName, fallback: fallback.value, attach, makeDirectory, writeFile, readFile, worktree })
   }),
 )
 

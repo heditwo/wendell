@@ -5,6 +5,7 @@ import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import type { ChannelId } from "./Ids.ts"
 import { Inbound } from "./Inbound.ts"
+import { Media } from "./Media.ts"
 import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
@@ -15,7 +16,7 @@ const MAX_BATCH = 20
 const GROUP_BUFFER = 64
 const IDLE_CHANNEL = Duration.minutes(30)
 
-interface Item extends Inbound.Routed {
+interface Item extends Omit<Inbound.Routed, "files"> {
   readonly place: Places.Place
 }
 
@@ -29,6 +30,7 @@ export const layer = Layer.effectDiscard(
     const screen = yield* Screen.Service
     const places = yield* Places.Service
     const recent = yield* Recent.Service
+    const media = yield* Media.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -77,17 +79,30 @@ export const layer = Layer.effectDiscard(
       if (latest === undefined) return
 
       const conversation = latest.place.conversation
+
+      const routed = yield* Effect.forEach(batch, (item) =>
+        (item.message.attachments.length === 0
+          ? Effect.succeed<ReadonlyArray<Inbound.FileNote>>([])
+          : media.saveIncoming(conversation.remote, conversation.directory, item.message)
+        ).pipe(Effect.map((files): Inbound.Routed => ({ message: item.message, route: item.route, files }))),
+      )
+
       const waiting = batch.filter(({ route }) => Routing.expectsReply(route) || Routing.showsProgress(route))
 
       const trigger = Option.fromUndefinedOr(waiting.at(-1)).pipe(
         Option.map(({ message }) => ({ channelId, messageId: message.id })),
       )
 
-      yield* conversations.deliver(conversation, Inbound.renderBatch(batch), {
-        expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
-        progress: waiting.length > 0,
-        trigger,
-      })
+      yield* conversations.deliver(
+        conversation,
+        Inbound.renderBatch(routed),
+        {
+          expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
+          progress: waiting.length > 0,
+          trigger,
+        },
+        routed.flatMap(({ files }) => Media.images(files)),
+      )
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,
         kind: conversation.kind,

@@ -1,7 +1,18 @@
-import { Option, Schema } from "effect"
+import { Data, Option, Schema } from "effect"
 import { ChannelId, GuildId, MessageId, UserId } from "./Ids.ts"
 import { Routing } from "./Routing.ts"
 import { WendellConfig } from "./WendellConfig.ts"
+
+export const Attachment = Schema.Struct({
+  id: Schema.String,
+  /** As Discord sends it: untrusted, never use it as a path. */
+  name: Schema.String,
+  url: Schema.String,
+  contentType: Schema.Option(Schema.String),
+  size: Schema.Number,
+})
+
+export interface Attachment extends Schema.Schema.Type<typeof Attachment> {}
 
 export const Message = Schema.Struct({
   id: MessageId,
@@ -11,20 +22,66 @@ export const Message = Schema.Struct({
   authorName: Schema.String,
   authorIsBot: Schema.Boolean,
   content: Schema.String,
+  attachments: Schema.Array(Attachment),
+  stickers: Schema.Array(Schema.String),
   mentionsMe: Schema.Boolean,
   repliesToMe: Schema.Boolean,
 })
 
 export interface Message extends Schema.Schema.Type<typeof Message> {}
 
+/** What happened to one attachment of a message. */
+export type FileNote = Data.TaggedEnum<{
+  Saved: {
+    readonly name: string
+    readonly type: string
+    readonly size: number
+    readonly path: string
+    /** The image goes to the model with the prompt. */
+    readonly image: boolean
+  }
+  Skipped: { readonly name: string; readonly size: number; readonly reason: string }
+}>
+
+export const FileNote = Data.taggedEnum<FileNote>()
+
 export interface Routed {
   readonly message: Message
   readonly route: Routing.Route
+  readonly files: ReadonlyArray<FileNote>
 }
 
 export const isDirect = (message: Message) => Option.isNone(message.guildId)
 
 const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+
+const attribute = (text: string) => escape(text).replaceAll('"', "&quot;")
+
+export const formatSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`
+
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** The message as plain text, with its attachments and stickers named. For transcripts and screening. */
+export const plainText = (message: Message) =>
+  [
+    message.content,
+    ...message.attachments.map((attachment) => `[attachment: ${attachment.name}]`),
+    ...message.stickers.map((sticker) => `[sticker: ${sticker}]`),
+  ]
+    .filter((part) => part.trim() !== "")
+    .join(" ")
+
+const renderFile: (note: FileNote) => string = FileNote.$match({
+  Saved: ({ name, type, size, path, image }) =>
+    `<attachment name="${attribute(name)}" type="${attribute(type)}" size="${formatSize(size)}" path="${attribute(path)}"` +
+    `${image ? ' image="attached to this prompt"' : ""} />`,
+  Skipped: ({ name, size, reason }) =>
+    `<attachment name="${attribute(name)}" size="${formatSize(size)}" skipped="${attribute(reason)}" />`,
+})
 
 const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Route.$match({
   Addressed: () => Option.none(),
@@ -35,9 +92,9 @@ const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Rou
   Watched: ({ goal }) => Option.some(WendellConfig.describeGoal(goal)),
 })
 
-export const render = ({ message, route }: Routed) => {
+export const render = ({ message, route, files }: Routed) => {
   const lines = [
-    `<message id="${message.id}" author="${escape(message.authorName)}" author_id="${message.authorId}">`,
+    `<message id="${message.id}" author="${attribute(message.authorName)}" author_id="${message.authorId}">`,
     `<guidance>${Routing.guidance(route)}</guidance>`,
   ]
 
@@ -46,7 +103,13 @@ export const render = ({ message, route }: Routed) => {
     onSome: (context) => lines.push(`<context>${context}</context>`),
   })
 
-  lines.push(escape(message.content), "</message>")
+  if (message.content.trim() !== "") lines.push(escape(message.content))
+
+  lines.push(
+    ...files.map(renderFile),
+    ...message.stickers.map((sticker) => `<sticker name="${attribute(sticker)}" />`),
+    "</message>",
+  )
 
   return lines.join("\n")
 }
