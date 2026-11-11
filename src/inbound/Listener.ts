@@ -13,7 +13,7 @@ import { Inbound } from "./Inbound.ts"
 import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
-import { Transcriber } from "./Transcriber.ts"
+import { Transcriber } from "../transcription/Transcriber.ts"
 
 const MAX_BATCH = 20
 const GROUP_BUFFER = 64

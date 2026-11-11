@@ -83,13 +83,31 @@ Files that you send to Wendell go to the OpenCode server, not to the machine tha
 - Forwarded messages work too. The agent gets the forwarded text, marked as forwarded, and the forwarded files and images like other attachments.
 - Messages with only a file or a sticker work like other messages. For example, reply to Wendell with only a screenshot.
 
-Voice messages and audio files are transcribed on the machine that runs Wendell, without a paid service:
+Voice messages and audio files are transcribed by a speech-to-text **provider** that you choose with `transcription` in `wendell.json`. Transcription is off until you choose one:
 
-- Wendell converts the audio to a 16 kHz mono WAV file with `ffmpeg`, then runs a local speech-to-text command. The default is [voxtype](https://github.com/peteonrails/voxtype) (`voxtype -q transcribe {file}`), which uses Whisper on your machine.
+| `provider` | What it does | Example |
+| --- | --- | --- |
+| `command` | Runs a speech-to-text program on the machine that runs Wendell. `{file}` in `command` becomes the audio file, and the text comes from stdout. With `convert` (default `true`), `ffmpeg` first makes a 16 kHz mono WAV file. `ignoreLines` removes output lines that match regular expressions, such as progress messages. | `{ "provider": "command", "command": ["whisper-cli", "-m", "ggml-base.en.bin", "-nt", "-f", "{file}"] }` |
+| `openai` | Sends the audio to an OpenAI-compatible `POST <url>/audio/transcriptions` endpoint. This can be a free local server such as [speaches](https://github.com/speaches-ai/speaches) or LocalAI, or a hosted API. `apiKeyEnv` names the environment variable with the key, when the endpoint needs one. `language` is an optional hint. | `{ "provider": "openai", "url": "http://localhost:8000/v1", "model": "Systran/faster-whisper-small" }` |
+| `off` | No transcription. The agent gets only the audio file. | `{ "provider": "off" }` |
+
+For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lines before the text:
+
+```json
+{
+  "transcription": {
+    "provider": "command",
+    "command": ["voxtype", "-q", "transcribe", "{file}"],
+    "ignoreLines": ["^Loading audio file:", "^Audio format:", "^Processing \\d+ samples"]
+  }
+}
+```
+
 - The transcript goes to the agent with the message, and routing uses it. So "Wendell, …" in a voice message addresses him.
 - Speech recognition often mishears "Wendell". So a voice message without his name still goes to the screen, which knows about the problem, instead of being ignored.
 - If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
-- To use another tool, set `transcription.command`. To turn it off, set `transcription.enabled` to `false`. `bun run doctor` checks that the commands exist.
+- `bun run doctor` checks the provider: that the program and `ffmpeg` exist, or that the endpoint answers.
+- To add a provider, implement `Provider.Provider` in `src/transcription/` and add a case to `SpeechToText.layer`.
 
 Wendell can also send files:
 
@@ -314,8 +332,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | Field | Meaning |
 | --- | --- |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
-| `transcription.command` | Local speech-to-text command for voice messages. `{file}` becomes a 16 kHz mono WAV file. The text comes from stdout. Default: `["voxtype", "-q", "transcribe", "{file}"]`. Needs `ffmpeg`. |
-| `transcription.enabled` | Set to `false` to turn off transcription. Default: `true`. |
+| `transcription` | The speech-to-text provider for voice messages: `command`, `openai` or `off` (default). See [Media](#media). |
 | `contextLimit` | Context size in tokens at which Wendell compacts a session, for every model. Default: `256000`. `0` leaves compaction to OpenCode alone. |
 | `servers.<name>.contextLimit` | The same, for one server. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |
@@ -365,7 +382,8 @@ The code is in `src/`, with one folder for each area:
 | `shared/` | IDs, the JSON files in `.data/`, and small helpers. |
 | `discord/` | The connection to Discord: messages, slash commands, buttons and Wendell's profile. |
 | `discord/commands/` | One file for each slash command. |
-| `inbound/` | Incoming messages: routing, the screen, attachments and voice messages. |
+| `inbound/` | Incoming messages: routing, the screen and attachments. |
+| `transcription/` | Voice messages and the speech-to-text providers. |
 | `conversations/` | Sessions, the context of each conversation, and the turn watcher (👀, typing, status line). |
 | `opencode/` | The connection to the OpenCode servers, models and permissions. |
 | `tools/` | Wendell's Discord tools for the agent, and one handler file for each group of tools. |

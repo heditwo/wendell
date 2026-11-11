@@ -15,7 +15,8 @@ import { Attachments } from "./inbound/Attachments.ts"
 import { Listener } from "./inbound/Listener.ts"
 import { Recent } from "./inbound/Recent.ts"
 import { Screen } from "./inbound/Screen.ts"
-import { Transcriber } from "./inbound/Transcriber.ts"
+import { SpeechToText } from "./transcription/SpeechToText.ts"
+import { Transcriber } from "./transcription/Transcriber.ts"
 import { Memory } from "./memory/Memory.ts"
 import { Recollection } from "./memory/Recollection.ts"
 import { ApprovalModes } from "./modes/ApprovalModes.ts"
@@ -38,7 +39,7 @@ const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, A
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
 // Model choices and long-term memory, which most services read.
-const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer)
+const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer, SpeechToText.layer)
 
 const Services = Layer.mergeAll(
   // Sessions and turns

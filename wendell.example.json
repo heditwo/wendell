@@ -1,5 +1,10 @@
 {
   "defaultServer": "home",
+  "transcription": {
+    "provider": "openai",
+    "url": "http://localhost:8000/v1",
+    "model": "Systran/faster-whisper-small"
+  },
   "servers": {
     "home": {
       "model": "opencode/claude-sonnet-5-5",

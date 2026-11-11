@@ -56,15 +56,39 @@ export const Channel = Schema.Struct({
 
 export interface Channel extends Schema.Schema.Type<typeof Channel> {}
 
-/** Local speech-to-text for voice messages. The command gets a 16 kHz mono WAV file in place of `{file}`. */
-export const Transcription = Schema.Struct({
-  enabled: Schema.optional(Schema.Boolean),
-  command: Schema.optional(Schema.NonEmptyArray(Schema.NonEmptyString)),
+/** A speech-to-text program on Wendell's machine. `{file}` in `command` becomes the audio file; the text comes from stdout. */
+export const CommandTranscription = Schema.Struct({
+  provider: Schema.Literal("command"),
+  command: Schema.NonEmptyArray(Schema.NonEmptyString),
+  /** Convert the audio to a 16 kHz mono WAV file with ffmpeg first. Default: `true`. */
+  convert: Schema.optional(Schema.Boolean),
+  /** Regular expressions for output lines that are not part of the transcript, such as progress messages. */
+  ignoreLines: Schema.optional(Schema.Array(Schema.String)),
 })
 
-export interface Transcription extends Schema.Schema.Type<typeof Transcription> {}
+export interface CommandTranscription extends Schema.Schema.Type<typeof CommandTranscription> {}
 
-export const DEFAULT_TRANSCRIBE_COMMAND: readonly [string, ...Array<string>] = ["voxtype", "-q", "transcribe", "{file}"]
+/** Any OpenAI-compatible `POST <url>/audio/transcriptions` endpoint, local (speaches, LocalAI, ...) or hosted. */
+export const OpenAITranscription = Schema.Struct({
+  provider: Schema.Literal("openai"),
+  /** The API base, for example `http://localhost:8000/v1`. */
+  url: Schema.NonEmptyString,
+  model: Schema.NonEmptyString,
+  /** Name of the environment variable with the API key, when the endpoint needs one. */
+  apiKeyEnv: Schema.optional(Schema.NonEmptyString),
+  /** ISO 639-1 language hint, for example `en`. */
+  language: Schema.optional(Schema.NonEmptyString),
+})
+
+export interface OpenAITranscription extends Schema.Schema.Type<typeof OpenAITranscription> {}
+
+export const Transcription = Schema.Union([
+  Schema.Struct({ provider: Schema.Literal("off") }),
+  CommandTranscription,
+  OpenAITranscription,
+])
+
+export type Transcription = typeof Transcription.Type
 
 export const File = Schema.Struct({
   defaultServer: Schema.optional(ServerName),
@@ -89,8 +113,8 @@ export interface Interface {
   readonly defaultServer: Option.Option<ServerName>
   /** Archive Wendell's sessions, so the OpenCode desktop does not list them. */
   readonly hideSessions: boolean
-  /** The speech-to-text command, or none when transcription is off. */
-  readonly transcribeCommand: Option.Option<readonly [string, ...Array<string>]>
+  /** How voice messages are transcribed. Default: off. */
+  readonly transcription: Transcription
   readonly serverPrefs: (name: ServerName) => ServerPrefs
   /** The context size at which Wendell compacts a session on this server, or none to leave it to OpenCode. */
   readonly contextLimit: (name: ServerName) => Option.Option<number>
@@ -114,10 +138,7 @@ export const describeGoal = (goal: Goal) =>
 export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
   hideSessions: file.hideSessions ?? true,
-  transcribeCommand:
-    file.transcription?.enabled === false
-      ? Option.none()
-      : Option.some(file.transcription?.command ?? DEFAULT_TRANSCRIBE_COMMAND),
+  transcription: file.transcription ?? { provider: "off" },
   serverPrefs: (name) => file.servers?.[name] ?? {},
   contextLimit: (name) =>
     Option.some(file.servers?.[name]?.contextLimit ?? file.contextLimit ?? DEFAULT_CONTEXT_LIMIT).pipe(

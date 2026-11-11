@@ -1,10 +1,10 @@
 import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun"
 import { Agent } from "@opencode/client/effect"
 import { Console, Effect, Layer, Option } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { Servers } from "../config/Servers.ts"
 import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
+import { SpeechToText } from "../transcription/SpeechToText.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 
 const check = (label: string, ok: boolean, detail: string) => Console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${detail}`)
@@ -134,28 +134,19 @@ const program = Effect.gen(function* () {
   yield* checkTranscription
 })
 
-const runs = (program: string, args: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-
-    return yield* spawner.exitCode(ChildProcess.make(program, args)).pipe(
-      Effect.map((code) => code === 0),
-      Effect.orElseSucceed(() => false),
-    )
-  })
-
 const checkTranscription = Effect.gen(function* () {
-  const config = yield* WendellConfig.Service
+  const provider = yield* SpeechToText.Service
 
-  if (Option.isNone(config.transcribeCommand)) return yield* check("transcription", true, "off")
+  if (Option.isNone(provider)) return yield* check("transcription", true, "off")
 
-  const program = config.transcribeCommand.value[0]
+  yield* check("transcription", true, provider.value.name)
 
-  yield* check("transcription ffmpeg", yield* runs("ffmpeg", ["-version"]), "converts voice messages to WAV")
-  yield* check(`transcription ${program}`, yield* runs(program, ["--help"]), config.transcribeCommand.value.join(" "))
+  const results = yield* provider.value.check
+
+  yield* Effect.forEach(results, (result) => check(result.label, result.ok, result.detail), { discard: true })
 })
 
-const Main = Layer.mergeAll(Servers.layer, WendellConfig.layer).pipe(
+const Main = Layer.mergeAll(Servers.layer, SpeechToText.layer.pipe(Layer.provideMerge(WendellConfig.layer))).pipe(
   Layer.provideMerge(Settings.layer),
   Layer.provideMerge(Layer.mergeAll(BunServices.layer, BunHttpClient.layer)),
 )
