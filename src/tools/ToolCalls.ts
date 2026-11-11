@@ -1,5 +1,6 @@
 import { Context, Data, Deferred, Effect, Layer, type Option, Queue, Schema, Stream } from "effect"
 import type { Embeds } from "../discord/Embeds.ts"
+import type { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, MessageId, ServerName, UserId } from "../shared/Ids.ts"
 import type { Tasks } from "../tasks/Tasks.ts"
 
@@ -57,9 +58,24 @@ export type ModelScope = "conversation" | "default"
 
 export const Call = Data.taggedEnum<Call>()
 
+/** One kind of call, for example `CallOf<"Reply">`. */
+export type CallOf<Tag extends Call["_tag"]> = Data.TaggedEnum.Value<Call, Tag>
+
+/** The message goes back to the agent as the tool's error. */
 export class ToolFailure extends Schema.TaggedError<ToolFailure>()("ToolCalls.ToolFailure", {
   message: Schema.String,
 }) {}
+
+export const fail = (message: string) => Effect.fail(new ToolFailure({ message }))
+
+/** For `Effect.mapError`: replaces any error with `message`, so internal details do not reach the agent. */
+export const failure = (message: string) => () => new ToolFailure({ message })
+
+/** Where a tool call came from: the server, and the conversation at the top of the call's session tree. */
+export interface Target {
+  readonly remote: Fleet.Remote
+  readonly channelId: ChannelId
+}
 
 export interface Request {
   readonly server: ServerName
