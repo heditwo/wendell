@@ -36,7 +36,7 @@ export interface Interface {
     root: AbsolutePath,
     relative: string,
     maxBytes: number,
-  ) => Effect.Effect<Uint8Array, ServerRequestError | FileTooLarge>
+  ) => Effect.Effect<Uint8Array<ArrayBuffer>, ServerRequestError | FileTooLarge>
   /**
    * When `directory` is inside a git repository, creates a worktree of it named `name` and returns
    * the same directory inside the worktree. Returns none when there is no repository.

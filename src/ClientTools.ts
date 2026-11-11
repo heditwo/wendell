@@ -1,12 +1,27 @@
 import type { ClientMcpTool, ClientMcpToolResult } from "@opencode/client/mcp"
 import { Effect, Option, Schema } from "effect"
-import { ChannelId, MessageId, type ServerName } from "./Ids.ts"
+import { Embeds } from "./Embeds.ts"
+import { ChannelId, MessageId, type ServerName, UserId } from "./Ids.ts"
 import { ToolCalls } from "./ToolCalls.ts"
 
 const ReplyArgs = Schema.Struct({
   text: Schema.NonEmptyString.annotate({ description: "Message text. Discord markdown. At most 2000 characters." }),
   reply_to: Schema.optional(MessageId).annotate({
     description: "ID of the message to reply to. Use it when you answer one specific message.",
+  }),
+  files: Schema.optional(Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(10))).annotate({
+    description:
+      "Files to attach: paths on this machine, absolute or relative to your working directory. At most 10 files and 25 MB. " +
+      "Use it for images, screenshots, charts and small files that people should see.",
+  }),
+  embeds: Schema.optional(Embeds.List).annotate({
+    description:
+      "Discord embeds for structured results, at most 10 and 6000 characters together. Not for normal chat. " +
+      "An image or thumbnail can show an attached file with attachment://<file name>.",
+  }),
+  mention: Schema.optional(UserId).annotate({
+    description:
+      "User ID to ping, for example the person who asked for a reminder. Only this user is pinged; never more than one person.",
   }),
 })
 
@@ -51,7 +66,10 @@ const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).
 
 const text = (value: string): ClientMcpToolResult => ({ content: [{ type: "text", text: value }] })
 
-const invalidArguments = () => new ToolCalls.ToolFailure({ message: "Invalid arguments." })
+const MAX_ISSUE = 1000
+
+const invalidArguments = (error: Schema.SchemaError) =>
+  new ToolCalls.ToolFailure({ message: `Invalid arguments: ${error.message.slice(0, MAX_ISSUE)}` })
 
 /** The tools Wendell attaches to an OpenCode server. Each call goes to the tool worker. */
 export const make = (
@@ -91,7 +109,14 @@ export const make = (
       "reply",
       "Post a message in the current Discord conversation. This is the only way to speak. Call it at most once per batch of messages.",
       ReplyArgs,
-      (input) => ToolCalls.Call.Reply({ text: input.text, replyTo: Option.fromUndefinedOr(input.reply_to) }),
+      (input) =>
+        ToolCalls.Call.Reply({
+          text: input.text,
+          replyTo: Option.fromUndefinedOr(input.reply_to),
+          files: input.files ?? [],
+          embeds: input.embeds ?? [],
+          mention: Option.fromUndefinedOr(input.mention),
+        }),
     ),
     tool(
       "react",

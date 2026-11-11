@@ -1,12 +1,19 @@
 import { AbsolutePath } from "@opencode/client/effect"
-import { Context, Effect, Layer, Option } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import path from "node:path"
+import type { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import { Inbound } from "./Inbound.ts"
+import { Policy } from "./Policy.ts"
 
 /** Larger attachments are not downloaded. */
 export const MAX_INCOMING_BYTES = 25 * 1024 * 1024
+
+/** Discord's limits for servers without boosts. */
+export const MAX_OUTGOING_FILES = 10
+export const MAX_OUTGOING_FILE_BYTES = 20 * 1024 * 1024
+export const MAX_OUTGOING_TOTAL_BYTES = 25 * 1024 * 1024
 
 const MAX_NAME = 100
 
@@ -37,7 +44,21 @@ export interface Interface {
     directory: AbsolutePath,
     message: Inbound.Message,
   ) => Effect.Effect<ReadonlyArray<Inbound.FileNote>>
+  /**
+   * Reads files from the server for a Discord message. Relative paths start at `directory`. Every file must be
+   * inside one of `roots`, and `.env` files are refused.
+   */
+  readonly loadOutgoing: (
+    remote: Fleet.Remote,
+    directory: AbsolutePath,
+    roots: ReadonlyArray<AbsolutePath>,
+    paths: ReadonlyArray<string>,
+  ) => Effect.Effect<ReadonlyArray<Discord.Upload>, FileRefused>
 }
+
+export class FileRefused extends Schema.TaggedError<FileRefused>()("Media.FileRefused", {
+  message: Schema.String,
+}) {}
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Media") {}
 
@@ -156,7 +177,61 @@ export const layer = Layer.effect(
       })
     })
 
-    return Service.of({ saveIncoming })
+    const refuse = (message: string) => Effect.fail(new FileRefused({ message }))
+
+    const rootOf = (roots: ReadonlyArray<AbsolutePath>, file: string) =>
+      Option.fromUndefinedOr(roots.find((root) => file === root || file.startsWith(`${root.replace(/\/+$/, "")}/`)))
+
+    const loadOutgoing = Effect.fn("Media.loadOutgoing")(function* (
+      remote: Fleet.Remote,
+      directory: AbsolutePath,
+      roots: ReadonlyArray<AbsolutePath>,
+      paths: ReadonlyArray<string>,
+    ) {
+      if (paths.length > MAX_OUTGOING_FILES) return yield* refuse(`Discord allows at most ${MAX_OUTGOING_FILES} files per message.`)
+
+      const uploads = new Array<Discord.Upload>()
+      const taken = new Set<string>()
+      let total = 0
+
+      for (const requested of paths) {
+        const file = path.resolve(directory, requested)
+
+        if (Policy.isSecretFile(file)) return yield* refuse(`${requested}: .env files are never posted.`)
+
+        const root = rootOf(roots, file)
+
+        if (Option.isNone(root)) {
+          return yield* refuse(`${requested}: only files in your working directory, your tasks' directories or ${remote.tmp} can be posted.`)
+        }
+
+        const limit = Math.min(MAX_OUTGOING_FILE_BYTES, MAX_OUTGOING_TOTAL_BYTES - total)
+
+        const data = yield* fleet.readFile(remote, root.value, path.relative(root.value, file), limit).pipe(
+          Effect.catchTags({
+            "Fleet.FileTooLarge": () =>
+              refuse(
+                `${requested} is too large. Discord allows ${Inbound.formatSize(MAX_OUTGOING_FILE_BYTES)} per file and ` +
+                  `${Inbound.formatSize(MAX_OUTGOING_TOTAL_BYTES)} per message.`,
+              ),
+            "Fleet.ServerRequestError": () => refuse(`${requested}: could not read the file. Check that it exists.`),
+          }),
+        )
+
+        const name = safeName(path.basename(file))
+        let unique = name
+
+        for (let index = 2; taken.has(unique); index += 1) unique = `${index}-${name}`
+
+        taken.add(unique)
+        total += data.byteLength
+        uploads.push({ name: unique, data, contentType: typeOf(unique) })
+      }
+
+      return uploads
+    })
+
+    return Service.of({ saveIncoming, loadOutgoing })
   }),
 )
 

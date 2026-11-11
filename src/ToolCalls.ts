@@ -1,9 +1,16 @@
 import { Context, Data, Deferred, Effect, Layer, type Option, Queue, Schema, Stream } from "effect"
-import type { ChannelId, MessageId, ServerName } from "./Ids.ts"
+import type { Embeds } from "./Embeds.ts"
+import type { ChannelId, MessageId, ServerName, UserId } from "./Ids.ts"
 import type { Tasks } from "./Tasks.ts"
 
 export type Call = Data.TaggedEnum<{
-  Reply: { readonly text: string; readonly replyTo: Option.Option<MessageId> }
+  Reply: {
+    readonly text: string
+    readonly replyTo: Option.Option<MessageId>
+    readonly files: ReadonlyArray<string>
+    readonly embeds: ReadonlyArray<Embeds.Embed>
+    readonly mention: Option.Option<UserId>
+  }
   React: { readonly messageId: MessageId; readonly emoji: string }
   StartTask: { readonly messageId: Option.Option<MessageId>; readonly title: string; readonly brief: string }
   ContinueTask: {

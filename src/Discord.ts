@@ -1,7 +1,9 @@
 import { BunHttpClient, BunSocket } from "@effect/platform-bun"
 import { DiscordConfig, DiscordREST, Discord as DiscordTypes, Intents } from "dfx"
 import { DiscordGateway, DiscordLive } from "dfx/gateway"
-import { Cache, Config, Context, Duration, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Cache, Config, Context, Duration, Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
+import type { Embeds } from "./Embeds.ts"
 import { ChannelId, GuildId, MessageId, UserId } from "./Ids.ts"
 import type { Inbound } from "./Inbound.ts"
 
@@ -80,6 +82,22 @@ export interface CommandSpec {
   }>
 }
 
+export interface Upload {
+  readonly name: string
+  readonly data: Uint8Array<ArrayBuffer>
+  readonly contentType: string
+}
+
+/** A message with optional files, embeds and one allowed user mention. */
+export interface Outgoing {
+  readonly text: string
+  readonly replyTo: Option.Option<MessageId>
+  readonly files: ReadonlyArray<Upload>
+  readonly embeds: ReadonlyArray<Embeds.Embed>
+  /** The only user that the message may ping. Everyone else, roles and @everyone never are. */
+  readonly mention: Option.Option<UserId>
+}
+
 export class DiscordError extends Schema.TaggedError<DiscordError>()("Discord.DiscordError", {
   operation: Schema.String,
   cause: Schema.Defect(),
@@ -109,6 +127,7 @@ export interface Interface {
     replyTo: Option.Option<MessageId>,
     buttons?: ReadonlyArray<Button>,
   ) => Effect.Effect<MessageId, DiscordError>
+  readonly post: (channelId: ChannelId, message: Outgoing) => Effect.Effect<MessageId, DiscordError>
   readonly edit: (channelId: ChannelId, messageId: MessageId, text: string) => Effect.Effect<void, DiscordError>
   readonly remove: (channelId: ChannelId, messageId: MessageId) => Effect.Effect<void, DiscordError>
   readonly react: (channelId: ChannelId, messageId: MessageId, emoji: string) => Effect.Effect<void, DiscordError>
@@ -145,6 +164,10 @@ const MAX_CHOICE_LENGTH = 100
 const COMPONENT_BUTTON = 2
 const RESPONSE_UPDATE_MESSAGE = 7
 const FLAG_EPHEMERAL = 64
+
+const API = "https://discord.com/api/v10"
+
+const SentMessage = Schema.Struct({ id: Schema.String })
 
 const buttonStyles = { primary: 1, secondary: 2, success: 3, danger: 4 } as const
 
@@ -249,6 +272,8 @@ const truncate = (text: string, length: number) => (text.length <= length ? text
 
 const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
+  const http = yield* HttpClient.HttpClient
+  const token = yield* Config.Redacted("DISCORD_BOT_TOKEN")
   const gateway = yield* DiscordGateway
 
   const me = yield* rest.getMyUser().pipe(
@@ -397,6 +422,52 @@ const make = Effect.gen(function* () {
     (effect) => discordError("Discord.send")(effect),
   )
 
+  // dfx sends `payload_json` as a nameless Blob, which Bun turns into a file, so Discord ignores the message
+  // fields. Uploads therefore go through a plain multipart request.
+  const upload = Effect.fn("Discord.upload")(function* (
+    channelId: ChannelId,
+    payload: DiscordTypes.MessageCreateRequest,
+    files: ReadonlyArray<Upload>,
+  ) {
+    const form = new FormData()
+
+    form.set("payload_json", JSON.stringify(payload))
+    files.forEach((file, index) => form.append(`files[${index}]`, new File([file.data], file.name, { type: file.contentType })))
+
+    const request = HttpClientRequest.post(`${API}/channels/${channelId}/messages`).pipe(
+      HttpClientRequest.setHeader("authorization", `Bot ${Redacted.value(token)}`),
+      HttpClientRequest.bodyFormData(form),
+    )
+
+    const response = yield* http.execute(request).pipe(Effect.flatMap(HttpClientResponse.filterStatusOk))
+
+    return yield* response.json.pipe(Effect.flatMap(Schema.decodeUnknownEffect(SentMessage)))
+  })
+
+  const post = Effect.fn("Discord.post")(
+    function* (channelId: ChannelId, message: Outgoing) {
+      const payload: DiscordTypes.MessageCreateRequest = {
+        content: message.text === "" ? undefined : truncate(message.text, MAX_MESSAGE_LENGTH),
+        allowed_mentions: Option.match(message.mention, {
+          onNone: () => ({ parse: [] }),
+          onSome: (userId) => ({ parse: [], users: [userId] }),
+        }),
+        message_reference: Option.match(message.replyTo, {
+          onNone: () => undefined,
+          onSome: (messageId) => ({ message_id: messageId, fail_if_not_exists: false }),
+        }),
+        embeds: message.embeds.length === 0 ? undefined : message.embeds,
+        attachments:
+          message.files.length === 0 ? undefined : message.files.map((file, index) => ({ id: String(index), filename: file.name })),
+      }
+
+      const sent = yield* message.files.length === 0 ? rest.createMessage(channelId, payload) : upload(channelId, payload, message.files)
+
+      return MessageId.make(sent.id)
+    },
+    (effect) => discordError("Discord.post")(effect),
+  )
+
   const edit = Effect.fn("Discord.edit")(
     function* (channelId: ChannelId, messageId: MessageId, text: string) {
       yield* rest.updateMessage(channelId, messageId, { content: truncate(text, MAX_MESSAGE_LENGTH) })
@@ -483,6 +554,7 @@ const make = Effect.gen(function* () {
     channel: (channelId) => Cache.get(channelCache, channelId),
     transcript,
     send,
+    post,
     edit,
     remove,
     react,
@@ -504,6 +576,6 @@ const dfxLayer = DiscordLive.pipe(
   Layer.provide(BunSocket.layerWebSocketConstructor),
 )
 
-export const layer = Layer.effect(Service, make).pipe(Layer.provide(dfxLayer))
+export const layer = Layer.effect(Service, make).pipe(Layer.provide(dfxLayer), Layer.provide(BunHttpClient.layer))
 
 export * as Discord from "./Discord.ts"

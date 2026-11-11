@@ -4,6 +4,7 @@ import path from "node:path"
 import { Activity } from "./Activity.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
+import { Embeds } from "./Embeds.ts"
 import { Fleet } from "./Fleet.ts"
 import type { ChannelId, MessageId } from "./Ids.ts"
 import { Inbound } from "./Inbound.ts"
@@ -42,6 +43,7 @@ export const layer = Layer.effectDiscard(
     const places = yield* Places.Service
     const recent = yield* Recent.Service
     const models = yield* Models.Service
+    const media = yield* Media.Service
 
     // Subagents' tool calls belong to the conversation at the top of their session tree.
     const channelOf = (remote: Fleet.Remote, sessionID: string) =>
@@ -262,17 +264,66 @@ export const layer = Layer.effectDiscard(
       )
     })
 
+    // Files may come from the conversation's directory, the directories of its tasks, and the server's temporary directory.
+    const attachments = Effect.fn("ToolWorker.attachments")(function* (
+      request: ToolCalls.Request,
+      channelId: ChannelId,
+      files: ReadonlyArray<string>,
+    ) {
+      const remote = yield* remoteOf(request)
+
+      const session = yield* remote.client.session
+        .get({ sessionID: SessionKey.forChannel(channelId) })
+        .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "Could not read this conversation's session." })))
+
+      const directory = session.location.directory
+
+      const related = (yield* tasks.all).flatMap((task) =>
+        task.server === remote.name &&
+        (task.threadId === channelId || task.parentTaskId === channelId || (task.parentId === channelId && task.parentTaskId === undefined))
+          ? [AbsolutePath.make(task.directory)]
+          : [],
+      )
+
+      return yield* media
+        .loadOutgoing(remote, directory, [directory, ...related, remote.tmp], files)
+        .pipe(Effect.mapError((error) => new ToolCalls.ToolFailure({ message: error.message })))
+    })
+
     const handle = Effect.fn("ToolWorker.handle")(function* (request: ToolCalls.Request) {
       const channelId = yield* channelOf(yield* remoteOf(request), request.sessionID)
 
       return yield* ToolCalls.Call.$match(request.call, {
-        Reply: ({ text, replyTo }) =>
+        Reply: ({ text, replyTo, files, embeds, mention }) =>
           Effect.gen(function* () {
-            const messageId = yield* discord.send(channelId, text, replyTo).pipe(discordFailure("Could not post the message."))
+            const uploads = files.length === 0 ? [] : yield* attachments(request, channelId, files)
+            const names = new Set(uploads.map((upload) => upload.name))
+            const missing = Embeds.attachmentNames(embeds).filter((name) => !names.has(name))
+
+            if (missing.length > 0) {
+              return yield* fail(
+                `The embeds use attachment://${missing.join(", attachment://")}, but the attached files are named: ` +
+                  `${[...names].join(", ") || "(none)"}.`,
+              )
+            }
+
+            const content = Option.match(mention, {
+              onNone: () => text,
+              onSome: (userId) => (text.includes(`<@${userId}>`) ? text : `<@${userId}> ${text}`),
+            })
+
+            const messageId = yield* discord.post(channelId, { text: content, replyTo, files: uploads, embeds, mention }).pipe(
+              Effect.tapError((error) => Effect.logWarning("Could not post a reply", { channelId, cause: error.cause })),
+              discordFailure(
+                uploads.length === 0
+                  ? "Could not post the message."
+                  : "Could not post the message. The files may be too large for this Discord server.",
+              ),
+            )
 
             yield* activity.spoke(channelId)
 
-            return `Posted message ${messageId}.`
+            return `Posted message ${messageId}${uploads.length === 0 ? "" : ` with ${uploads.map((upload) => upload.name).join(", ")}`}.`
           }),
 
         React: ({ messageId, emoji }) =>
