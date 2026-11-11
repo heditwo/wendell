@@ -1,4 +1,4 @@
-import { type AbsolutePath, Agent, type Model, type Session, SessionMessage } from "@opencode/client/effect"
+import { AbsolutePath, Agent, type Model, type Session, SessionMessage } from "@opencode/client/effect"
 import {
   Clock,
   Context,
@@ -8,6 +8,7 @@ import {
   Fiber,
   FileSystem,
   HashMap,
+  HashSet,
   Layer,
   Option,
   Ref,
@@ -37,6 +38,7 @@ const STATUS_EDIT_EVERY = 1_500
 const RECENT_TASKS = 15
 const WATCHING = "👀"
 const MAX_SESSION_DEPTH = 8
+const LISTENER_RESTART = Duration.seconds(5)
 
 export type Kind = "channel" | "task" | "dm"
 
@@ -143,6 +145,8 @@ export const layer = Layer.effect(
     const prepared = yield* Ref.make(HashMap.empty<string, Conversation>())
     const contexts = yield* Ref.make(HashMap.empty<string, string>())
     const roots = yield* Ref.make(HashMap.empty<string, Option.Option<string>>())
+    const ours = yield* Ref.make(HashSet.empty<SessionMessage.ID>())
+    const watching = yield* Ref.make(HashMap.empty<string, number>())
 
     const rootOf = Effect.fn("Conversations.rootOf")(function* (remote: Fleet.Remote, sessionID: string) {
       const cacheKey = `${remote.name}/${sessionID}`
@@ -181,6 +185,7 @@ export const layer = Layer.effect(
       const where = [
         `This conversation is in Discord <#${conversation.channelId}>. Your working directory is ${conversation.directory}.`,
         `Your model here: ${model}. When someone asks for another model, use set_model.`,
+        `People's time zone is ${settings.timeZone} unless they say otherwise. Pass it as tz to schedule_create.`,
       ].join("\n")
 
       if (conversation.kind === "task") {
@@ -360,12 +365,14 @@ export const layer = Layer.effect(
     const watchTurn = Effect.fn("Conversations.watchTurn")(function* (
       conversation: Conversation,
       sessionID: Session.ID,
-      inboxID: SessionMessage.ID,
+      /** None for a turn that Wendell did not start, such as a schedule that fired. It is already running. */
+      inboxID: Option.Option<SessionMessage.ID>,
       turn: Turn,
       since: number,
       ready: Deferred.Deferred<void>,
     ) {
       const channelId = conversation.channelId
+      const foreign = Option.isNone(inboxID)
       const delivered = yield* Ref.make(false)
 
       const status = yield* Ref.make<{ readonly id: Option.Option<MessageId>; readonly label: string; readonly at: number }>({
@@ -419,6 +426,8 @@ export const layer = Layer.effect(
           yield* Ref.set(status, { id, label: label.value, at: now })
         })
 
+      if (foreign) yield* onDelivered
+
       yield* conversation.remote.client.event
         .subscribe({
           types: [
@@ -434,7 +443,7 @@ export const layer = Layer.effect(
           Stream.runForEach((event) =>
             Effect.gen(function* () {
               if (event.type === "session.inbox.delivered") {
-                if (event.data.inboxID === inboxID) yield* onDelivered
+                if (Option.contains(inboxID, event.data.inboxID)) yield* onDelivered
 
                 return
               }
@@ -477,7 +486,7 @@ export const layer = Layer.effect(
 
       yield* tasks.touch(channelId).pipe(Effect.ignore)
 
-      if (Option.isSome(failed) && (turn.expectReply || turn.progress)) {
+      if (Option.isSome(failed) && (turn.expectReply || turn.progress || foreign)) {
         yield* discord.send(channelId, `⚠️ I ran into an error: ${failed.value}\n-# If it keeps happening, pick another model with /model.`, Option.none())
         yield* activity.spoke(channelId)
 
@@ -498,6 +507,113 @@ export const layer = Layer.effect(
       })
     })
 
+    const watched = (
+      conversation: Conversation,
+      sessionID: Session.ID,
+      inboxID: Option.Option<SessionMessage.ID>,
+      turn: Turn,
+      since: number,
+      ready: Deferred.Deferred<void>,
+    ) => {
+      const key = `${conversation.remote.name}/${sessionID}`
+
+      const change = (delta: number) =>
+        Ref.update(watching, (all) => HashMap.set(all, key, Option.getOrElse(HashMap.get(all, key), () => 0) + delta))
+
+      return change(1).pipe(
+        Effect.andThen(watchTurn(conversation, sessionID, inboxID, turn, since, ready)),
+        Effect.ensuring(change(-1)),
+      )
+    }
+
+    // A turn that Wendell did not start has no prepared conversation after a restart, so it is rebuilt from the session.
+    const foreignConversation = Effect.fn("Conversations.foreignConversation")(function* (
+      remote: Fleet.Remote,
+      sessionID: Session.ID,
+      channelId: ChannelId,
+    ) {
+      const known = HashMap.get(yield* Ref.get(prepared), `${remote.name}/${sessionID}`)
+
+      if (Option.isSome(known)) return known.value
+
+      const session = yield* remote.client.session.get({ sessionID })
+      const task = yield* tasks.get(channelId)
+
+      return {
+        kind: Option.isSome(task) ? "task" : "channel",
+        channelId,
+        guildId: Option.flatMap(task, (found) => Option.fromUndefinedOr(found.guildId)),
+        remote,
+        directory: session.location.directory,
+        title: session.title ?? "",
+      } satisfies Conversation
+    })
+
+    // Schedules and background jobs (such as image_generate) wake Wendell's sessions without a Discord message.
+    // Their turns get the same watcher, without 👀 and without the silence fallback; errors are still posted.
+    const onForeignDelivery = Effect.fn("Conversations.onForeignDelivery")(function* (
+      remote: Fleet.Remote,
+      sessionID: Session.ID,
+      inboxID: SessionMessage.ID,
+    ) {
+      const channelId = SessionKey.channelOf(sessionID)
+
+      const mine = yield* Ref.modify(ours, (all) => [HashSet.has(all, inboxID), HashSet.remove(all, inboxID)])
+
+      if (Option.isNone(channelId) || mine) return
+
+      if (Option.getOrElse(HashMap.get(yield* Ref.get(watching), `${remote.name}/${sessionID}`), () => 0) > 0) return
+
+      const conversation = yield* foreignConversation(remote, sessionID, channelId.value)
+      const since = yield* Clock.currentTimeMillis
+      const ready = yield* Deferred.make<void>()
+
+      yield* Effect.logInfo("Watching a turn that Wendell did not start", { server: remote.name, channelId: channelId.value })
+      yield* watched(conversation, sessionID, Option.none(), { expectReply: false, progress: false, trigger: Option.none() }, since, ready).pipe(
+        Effect.catch((cause) => Effect.logWarning("Turn watcher failed", { server: remote.name, channelId: channelId.value, cause })),
+        Effect.forkIn(scope),
+      )
+    })
+
+    const watchForeign = (remote: Fleet.Remote) =>
+      remote.client.event.subscribe({ types: ["session.inbox.delivered"] }).pipe(
+        Stream.runForEach((event) =>
+          event.type === "session.inbox.delivered"
+            ? onForeignDelivery(remote, event.data.sessionID, event.data.inboxID).pipe(
+                Effect.catch((cause) => Effect.logWarning("Could not watch a turn", { server: remote.name, cause })),
+              )
+            : Effect.void,
+        ),
+        Effect.catch((cause) => Effect.logWarning("Turn listener stopped", { server: remote.name, cause })),
+        Effect.repeat(Schedule.spaced(LISTENER_RESTART)),
+      )
+
+    // A schedule can fire after a restart, before anyone writes. Its session needs Wendell's tools already.
+    const attachKnown = Effect.fn("Conversations.attachKnown")(function* (remote: Fleet.Remote) {
+      const listing = yield* remote.client.file.list({ location: { directory: remote.directory } }).pipe(
+        Effect.map((page) => page.data),
+        Effect.orElseSucceed(() => []),
+      )
+
+      const dms = listing.flatMap((entry) =>
+        entry.type === "directory" && path.basename(entry.path).startsWith("dm-") ? [path.join(remote.directory, entry.path)] : [],
+      )
+
+      const directories = new Set([
+        ...dms,
+        ...(yield* tasks.all).flatMap((task) => (task.server === remote.name ? [task.directory] : [])),
+      ])
+
+      yield* Effect.forEach(directories, (directory) => fleet.attach(remote, AbsolutePath.make(directory)), { discard: true })
+      yield* Effect.logInfo("Attached Wendell's tools to known conversations", { server: remote.name, directories: directories.size + 1 })
+    })
+
+    yield* Effect.forEach(
+      fleet.remotes,
+      (remote) => Effect.all([attachKnown(remote), watchForeign(remote)], { concurrency: 2, discard: true }).pipe(Effect.forkIn(scope)),
+      { discard: true },
+    )
+
     const deliver = Effect.fn("Conversations.deliver")(
       function* (conversation: Conversation, text: string, turn: Turn, images: ReadonlyArray<AbsolutePath> = []) {
         const sessionID = yield* ensure(conversation)
@@ -505,7 +621,8 @@ export const layer = Layer.effect(
         const since = yield* Clock.currentTimeMillis
         const ready = yield* Deferred.make<void>()
 
-        yield* watchTurn(conversation, sessionID, inboxID, turn, since, ready).pipe(
+        yield* Ref.update(ours, HashSet.add(inboxID))
+        yield* watched(conversation, sessionID, Option.some(inboxID), turn, since, ready).pipe(
           Effect.catch((cause) =>
             Effect.logWarning("Turn watcher failed", { server: conversation.remote.name, channelId: conversation.channelId, cause }),
           ),

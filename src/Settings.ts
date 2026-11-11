@@ -12,6 +12,8 @@ export interface Interface {
   readonly approveAbove: number
   readonly batchWindow: Duration.Duration
   readonly followWindow: Duration.Duration
+  /** People's time zone for reminders, unless they name another one. */
+  readonly timeZone: string
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Settings") {}
@@ -45,6 +47,7 @@ export const config = Config.all({
   approveAbove: Config.Number("WENDELL_APPROVE_ABOVE").pipe(Config.withDefault(0.6)),
   batchWindow: Config.Duration("WENDELL_BATCH_WINDOW").pipe(Config.withDefault(Duration.seconds(3))),
   followWindow: Config.Duration("WENDELL_FOLLOW_WINDOW").pipe(Config.withDefault(Duration.minutes(10))),
+  timeZone: Config.String("WENDELL_TIME_ZONE").pipe(Config.withDefault("America/New_York")),
 })
 
 export const layer = Layer.effect(

@@ -1,10 +1,12 @@
-import { Effect, Layer, Option, Schema, Stream } from "effect"
+import type { OpenCodeClient } from "@opencode/client/effect"
+import { DateTime, Effect, Layer, Option, Schema, Stream } from "effect"
 import { ApprovalModes } from "./ApprovalModes.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
+import { SessionKey } from "./SessionKey.ts"
 import { WendellConfig } from "./WendellConfig.ts"
 import type { ToolCalls } from "./ToolCalls.ts"
 
@@ -42,7 +44,48 @@ const specs: ReadonlyArray<Discord.CommandSpec> = [
       },
     ],
   },
+  {
+    name: "reminders",
+    description: "Show the reminders and check-ins of this conversation, or cancel one.",
+    options: [
+      { name: "cancel", description: "The reminder to cancel.", required: false, autocomplete: true, choices: [] },
+    ],
+  },
 ]
+
+type ScheduleInfo = Effect.Success<ReturnType<OpenCodeClient["experimental"]["schedule"]["list"]>>[number]
+
+const MAX_LABEL = 60
+
+const labelOf = (schedule: ScheduleInfo) => {
+  const label = schedule.name ?? schedule.action.prompt
+
+  return label.length <= MAX_LABEL ? label : `${label.slice(0, MAX_LABEL - 1)}…`
+}
+
+const whenOf = (schedule: ScheduleInfo) => {
+  const { when } = schedule
+
+  if (when.type === "in") return `once, ${when.in} after it was made`
+
+  if (when.type === "at") return `once at ${when.at} (${schedule.tz})`
+
+  if (when.type === "every") return `every ${when.every}`
+
+  return `cron \`${when.cron}\` (${schedule.tz})`
+}
+
+const nextOf = (schedule: ScheduleInfo) => {
+  if (schedule.status === "paused") return "paused"
+
+  if (schedule.nextDueAt === undefined) return "no next run"
+
+  const seconds = Math.round(DateTime.toEpochMillis(schedule.nextDueAt) / 1000)
+
+  return `next <t:${seconds}:f> (<t:${seconds}:R>)`
+}
+
+const describeSchedule = (schedule: ScheduleInfo) => `- **${labelOf(schedule)}**: ${whenOf(schedule)}, ${nextOf(schedule)}`
 
 const isMode = Schema.is(ApprovalModes.Mode)
 
@@ -163,7 +206,51 @@ export const layer = Layer.effectDiscard(
       yield* discord.editCommandAnswer(call, answer)
     })
 
+    const schedulesOf = Effect.fn("Commands.schedulesOf")(function* (call: Discord.CommandCall) {
+      const place = yield* places.forOrigin(origin(call))
+      const { remote, channelId } = place.conversation
+
+      const all = yield* remote.client.experimental.schedule
+        .list({ sessionID: SessionKey.forChannel(channelId) })
+        .pipe(Effect.catchTag("SessionNotFoundError", () => Effect.succeed<ReadonlyArray<ScheduleInfo>>([])))
+
+      return { remote, schedules: all.filter((schedule) => schedule.status !== "done") }
+    })
+
+    const reminders = Effect.fn("Commands.reminders")(function* (call: Discord.CommandCall) {
+      yield* discord.deferCommand(call, true)
+
+      const answer = yield* Effect.gen(function* () {
+        const { remote, schedules } = yield* schedulesOf(call)
+        const cancel = option(call, "cancel")
+
+        if (Option.isSome(cancel)) {
+          const wanted = cancel.value.trim()
+          const found = schedules.find((schedule) => schedule.id === wanted || schedule.name === wanted)
+
+          if (found === undefined) return "I found no reminder with that name in this conversation."
+
+          yield* remote.client.experimental.schedule.delete({ scheduleID: found.id })
+          yield* Effect.logInfo("Cancelled a schedule", { server: remote.name, channelId: call.channelId })
+
+          return `Cancelled **${labelOf(found)}**.`
+        }
+
+        if (schedules.length === 0) return "There are no reminders or check-ins in this conversation."
+
+        return ["Reminders and check-ins here:", ...schedules.map(describeSchedule)].join("\n")
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not answer /reminders", { cause }).pipe(Effect.as("I could not read the reminders. Try again.")),
+        ),
+      )
+
+      yield* discord.editCommandAnswer(call, answer)
+    })
+
     const command = (call: Discord.CommandCall) => {
+      if (call.name === "reminders") return reminders(call)
+
       if (call.name === "model") return changeModel(call)
 
       if (call.name === "auto") return approvals(call)
@@ -173,11 +260,28 @@ export const layer = Layer.effectDiscard(
       return Effect.void
     }
 
+    const reminderChoices = Effect.fn("Commands.reminderChoices")(function* (call: Discord.CommandCall, query: string) {
+      const { schedules } = yield* schedulesOf(call)
+      const words = query.toLowerCase().split(/\s+/).filter((word) => word !== "")
+
+      return schedules
+        .filter((schedule) => words.every((word) => `${schedule.name ?? ""} ${schedule.action.prompt}`.toLowerCase().includes(word)))
+        .map((schedule) => ({ name: `${labelOf(schedule)} · ${whenOf(schedule)}`, value: schedule.id }))
+    })
+
     const autocomplete = Effect.fn("Commands.autocomplete")(function* (call: Discord.CommandCall) {
       const query = Option.fromNullishOr(call.options.find((candidate) => candidate.focused)).pipe(
         Option.map((focused) => focused.value),
         Option.getOrElse(() => ""),
       )
+
+      if (call.name === "reminders") {
+        const found = yield* reminderChoices(call, query).pipe(
+          Effect.catch((cause) => Effect.logWarning("Could not list reminders for autocomplete", { cause }).pipe(Effect.as([]))),
+        )
+
+        return yield* discord.answerAutocomplete(call, found)
+      }
 
       const choices = yield* Effect.gen(function* () {
         const place = yield* places.forOrigin(origin(call))
