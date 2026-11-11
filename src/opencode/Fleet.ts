@@ -1,6 +1,6 @@
 import { AbsolutePath, OpenCode, type OpenCodeClient, Project } from "@opencode/client/effect"
 import { type ClientMcpConnection, connectClientMcp } from "@opencode/client/mcp"
-import { Context, Effect, HashMap, Layer, Option, Redacted, Ref, Schema, Semaphore } from "effect"
+import { Context, Duration, Effect, HashMap, Layer, Option, Redacted, Ref, Schedule, Schema, Semaphore, Stream } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import path from "node:path"
 import { Servers } from "../config/Servers.ts"
@@ -19,14 +19,16 @@ export interface Remote {
   readonly tmp: AbsolutePath
   readonly client: OpenCodeClient
   readonly prefs: WendellConfig.ServerPrefs
-  /** Optional server features, found when Wendell connects. */
-  readonly capabilities: Capabilities
+  /** Optional server features. Kept current when the server's config, models or providers change. */
+  readonly capabilities: Effect.Effect<Capabilities>
 }
 
 export interface Capabilities {
   /** The `image_generate` tool exists: an enabled image model, and the tool is on. */
   readonly imageGeneration: boolean
 }
+
+const CAPABILITY_WATCH_RESTART = Duration.seconds(5)
 
 // From this version on, `image_generate` is on whenever an image model is available.
 const IMAGE_TOOL_BY_DEFAULT = [2, 2, 2] as const
@@ -265,6 +267,9 @@ export const layer = Layer.effect(
 
       tokens.set(server.name, server.token)
 
+      const directory = AbsolutePath.make(server.directory)
+      const capabilities = yield* Ref.make<Capabilities>({ imageGeneration: yield* imageGeneration(client, info.version, directory) })
+
       const remote: Remote = {
         name: server.name,
         url: server.url,
@@ -272,17 +277,33 @@ export const layer = Layer.effect(
         tmp: AbsolutePath.make(info.paths.tmp),
         client,
         prefs: config.serverPrefs(server.name),
-        capabilities: {
-          imageGeneration: yield* imageGeneration(client, info.version, AbsolutePath.make(server.directory)),
-        },
+        capabilities: Ref.get(capabilities),
       }
+
+      // A config change, a new model or a new login can add or remove tools, so look again after each.
+      const refresh = Effect.gen(function* () {
+        const current = yield* client.server.info()
+        const next: Capabilities = { imageGeneration: yield* imageGeneration(client, current.version, directory) }
+        const before = yield* Ref.getAndSet(capabilities, next)
+
+        if (before.imageGeneration !== next.imageGeneration) {
+          yield* Effect.logInfo("Server capabilities changed", { server: server.name, imageGeneration: next.imageGeneration })
+        }
+      }).pipe(Effect.catch((cause) => Effect.logWarning("Could not refresh server capabilities", { server: server.name, cause })))
+
+      yield* client.event.subscribe({ types: ["config.updated", "model.updated", "provider.updated"] }).pipe(
+        Stream.runForEach(() => refresh),
+        Effect.catch((cause) => Effect.logWarning("Capability watcher stopped", { server: server.name, cause })),
+        Effect.repeat(Schedule.spaced(CAPABILITY_WATCH_RESTART)),
+        Effect.forkScoped,
+      )
 
       yield* Effect.logInfo("Connected to OpenCode server", {
         server: server.name,
         url: server.url,
         version: info.version,
         directory: server.directory,
-        imageGeneration: remote.capabilities.imageGeneration,
+        imageGeneration: (yield* remote.capabilities).imageGeneration,
       })
 
       return remote

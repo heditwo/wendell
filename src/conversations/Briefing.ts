@@ -53,7 +53,7 @@ export const make = Effect.gen(function* () {
       `This conversation is in Discord <#${conversation.channelId}>. Your working directory is ${conversation.directory}.`,
       `Your model here: ${model}. When someone asks for another model, use set_model.`,
       `People's time zone is ${settings.timeZone} unless they say otherwise. Pass it as tz to schedule_create.`,
-      conversation.remote.capabilities.imageGeneration
+      (yield* conversation.remote.capabilities).imageGeneration
         ? "You can make images with image_generate. It runs in the background: say in one short sentence that you " +
           "started it, then end your turn. When the notice with the saved path comes, post the image with wendell_reply and files. " +
           "For a new avatar, make a square image first."
