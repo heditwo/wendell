@@ -13,7 +13,7 @@ Wendell has no AI setup of his own. He connects to one or more running [OpenCode
 - **Later**, refer back from anywhere in the server: "Wendell, that todo app from yesterday, add dark mode". He finds the task and continues in its thread.
 - **Files and images**: send them with your message, also without text. Wendell sees images and can read other files. See [Media](#media).
 - **Reminders and check-ins**: "Wendell, remind me in 20 minutes to stretch", or "every weekday at 9, check that the site is up and tell me only if it is down". See [Reminders](#reminders).
-- **While he works**, you see 👀 on your message, typing, and a status line such as *Running a command…*. The status line disappears when he answers.
+- **While he works**, you see 👀 on your message, typing, and a status line such as *Running a command…*. The status line disappears when he answers. For messages that do not address him (a photo without text, a follow-up), he shows them when the screen is quite sure that the message is for him, or else as soon as he starts to work on it. When he only reacts or stays quiet, nothing shows.
 - **Approvals**: when the agent needs permission (for example for a shell command, or to read outside its project directory), Wendell checks the conversation's approval mode. See [Approvals](#approvals).
 - He also joins in **without being addressed** in channels with a goal, and shortly after he has spoken in a conversation. A cheap decision model screens these messages first.
 
@@ -306,6 +306,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | What Wendell listens for | `goal.wakeWhen` in `wendell.json` |
 | How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
 | How long a message waits before it interrupts Wendell (`/busy interrupt`) | `WENDELL_INTERRUPT_AFTER` (default `15 seconds`) |
+| How sure the screen must be to show 👀 and typing at once for messages that do not address him | `WENDELL_ENGAGE_ABOVE` (default `0.8`) |
 | How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |

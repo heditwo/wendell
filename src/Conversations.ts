@@ -57,6 +57,8 @@ export interface Turn {
   readonly expectReply: boolean
   /** Show 👀, typing and a live status line while Wendell works. */
   readonly progress: boolean
+  /** Without `progress`: show them from the first tool call, when Wendell has decided to act. */
+  readonly lazyProgress?: boolean | undefined
   readonly trigger: Option.Option<{ readonly channelId: ChannelId; readonly messageId: MessageId }>
   /** How to deliver while a turn is running. Default: `wait`, for Wendell's own hand-offs and reports. */
   readonly busy?: WendellConfig.BusyMode | undefined
@@ -387,10 +389,10 @@ export const layer = Layer.effect(
       const outcome = yield* Deferred.make<void>()
       const failure = yield* Ref.make(Option.none<string>())
 
-      const onDelivered = Effect.gen(function* () {
-        yield* Ref.set(delivered, true)
+      const engaged = yield* Ref.make(false)
 
-        if (!turn.progress) return
+      const engage = Effect.gen(function* () {
+        if (yield* Ref.getAndSet(engaged, true)) return
 
         yield* Option.match(turn.trigger, {
           onNone: () => Effect.void,
@@ -405,9 +407,18 @@ export const layer = Layer.effect(
         yield* Ref.set(typing, Option.some(fiber))
       })
 
+      const onDelivered = Effect.gen(function* () {
+        yield* Ref.set(delivered, true)
+
+        if (turn.progress) yield* engage
+      })
+
       const onTool = (name: string, helper: boolean) =>
         Effect.gen(function* () {
-          if (!turn.progress) return
+          // A lone reaction is a full answer, so it does not need 👀 or typing.
+          if (!(yield* Ref.get(engaged)) && turn.lazyProgress === true && !name.endsWith("react")) yield* engage
+
+          if (!(yield* Ref.get(engaged))) return
 
           const label = Progress.label(name).pipe(Option.map((text) => (helper ? `Helper: ${text}` : text)))
 

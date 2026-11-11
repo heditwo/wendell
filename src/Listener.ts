@@ -20,6 +20,8 @@ const IDLE_CHANNEL = Duration.minutes(30)
 
 interface Item extends Omit<Inbound.Routed, "files"> {
   readonly place: Places.Place
+  /** The screen is quite sure that the message is for Wendell. */
+  readonly confident: boolean
 }
 
 export const layer = Layer.effectDiscard(
@@ -72,14 +74,14 @@ export const layer = Layer.effectDiscard(
         goal: quiet ? Option.none() : place.goal,
       })
 
-      const skip = yield* Option.match(Routing.screenQuestion(candidate), {
-        onNone: () => Effect.succeed(false),
-        onSome: (question) => screen.shouldSkip(place.conversation.remote, message, question),
+      const verdict = yield* Option.match(Routing.screenQuestion(candidate), {
+        onNone: () => Effect.succeed<Screen.Verdict>({ skip: false, confident: false }),
+        onSome: (question) => screen.screen(place.conversation.remote, message, question),
       })
 
-      const routeTaken = skip ? Routing.Route.Ignored() : candidate
+      const routeTaken = verdict.skip ? Routing.Route.Ignored() : candidate
 
-      return { message, place, route: routeTaken } satisfies Item
+      return { message, place, route: routeTaken, confident: verdict.confident } satisfies Item
     })
 
     const deliver = Effect.fn("Listener.deliver")(function* (channelId: ChannelId, batch: ReadonlyArray<Item>) {
@@ -96,9 +98,12 @@ export const layer = Layer.effectDiscard(
         ).pipe(Effect.map((files): Inbound.Routed => ({ message: item.message, route: item.route, files }))),
       )
 
-      const waiting = batch.filter(({ route }) => Routing.expectsReply(route) || Routing.showsProgress(route))
+      const waiting = batch.filter(
+        ({ route, confident }) => Routing.expectsReply(route) || Routing.showsProgress(route) || confident,
+      )
 
-      const trigger = Option.fromUndefinedOr(waiting.at(-1)).pipe(
+      // Without a clear signal, 👀 and typing go on the latest message once Wendell starts to work on it.
+      const trigger = Option.fromUndefinedOr(waiting.at(-1) ?? latest).pipe(
         Option.map(({ message }) => ({ channelId, messageId: message.id })),
       )
 
@@ -108,6 +113,7 @@ export const layer = Layer.effectDiscard(
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
+          lazyProgress: true,
           trigger,
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
           busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
