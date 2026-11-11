@@ -11,6 +11,8 @@ Wendell has no AI setup of his own. He connects to one or more running [OpenCode
 - **Real work** moves into a thread. "Wendell, build me a todo app and put it on a tunnel" starts a thread called *Todo app* with its own project directory. Everything said in that thread goes to that task, without a mention.
 - **Large work** splits into **sub-tasks**. In a task thread, Wendell can start a sub-task for an independent part of the work. Each sub-task gets its own thread in the same channel, with a link in the parent thread. When a sub-task is done, it reports to the parent task, and the parent continues.
 - **Later**, refer back from anywhere in the server: "Wendell, that todo app from yesterday, add dark mode". He finds the task and continues in its thread.
+- **Files and images**: send them with your message, also without text. Wendell sees images and can read other files. See [Media](#media).
+- **Reminders and check-ins**: "Wendell, remind me in 20 minutes to stretch", or "every weekday at 9, check that the site is up and tell me only if it is down". See [Reminders](#reminders).
 - **While he works**, you see 👀 on your message, typing, and a status line such as *Running a command…*. The status line disappears when he answers.
 - **Approvals**: when the agent needs permission (for example for a shell command, or to read outside its project directory), Wendell checks the conversation's approval mode. See [Approvals](#approvals).
 - He also joins in **without being addressed** in channels with a goal, and shortly after he has spoken in a conversation. A cheap decision model screens these messages first.
@@ -66,8 +68,87 @@ flowchart LR
 - Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 - Channels work in Wendell's root directory on the server (for example `~/wendell`). Each task gets a subdirectory (`~/wendell/todo-app`). Each DM gets `~/wendell/dm-<user ID>`.
 - A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory.
-- Wendell attaches his Discord tools to each server through OpenCode's client MCP: `wendell_reply`, `wendell_react`, `wendell_start_task`, `wendell_continue_task`, `wendell_update_task` and `wendell_set_model`. You do not install anything on the server.
+- Wendell attaches his Discord tools to each server through OpenCode's client MCP (see [Discord tools](#discord-tools)). You do not install anything on the server.
 - The agent speaks only through these tools. When someone addresses Wendell and the turn ends without a reply, Wendell posts the turn's final text.
+- Some turns start without a Discord message, for example when a schedule fires or a background image is ready. Wendell follows these turns too. He posts an error if one fails, but he does not post the turn's text.
+
+## Media
+
+Files that you send to Wendell go to the OpenCode server, not to the machine that runs Wendell.
+
+- Wendell saves each attachment in the conversation's directory, in `attachments/<message ID>/<file name>`. He makes the file name safe first (letters, digits, `.`, `-` and `_`).
+- Files larger than 25 MB are not downloaded. The message tells the agent that they were skipped.
+- The agent gets the name, type, size and path of each file. PNG, JPEG, GIF and WebP images also go to the model with the prompt, so it sees them. The model must accept images.
+- Messages with only a file or a sticker work like other messages. For example, reply to Wendell with only a screenshot.
+
+Wendell can also send files:
+
+- The agent attaches files with `files` in `wendell_reply`. Wendell reads them from the server and uploads them to Discord. A message can have at most 10 files, 20 MB for each file and 25 MB in total.
+- Wendell sends only files from the conversation's directory, the directories of its tasks, and the server's temporary directory (for example `/tmp/opencode`). He never sends `.env` files.
+- For structured results, the agent can add `embeds`. An embed image can show an attached file with `attachment://<file name>`.
+- When you ask for an image, the agent uses OpenCode's `image_generate` tool (`experimental.image_generate` in your OpenCode config). The tool runs in the background. When the image is ready, the agent posts it.
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant W as Wendell
+  participant S as OpenCode server
+  You->>W: photo.png and "Wendell, what is this?"
+  W->>S: write attachments/<message ID>/photo.png
+  W->>S: prompt with the file list and the image
+  S->>W: wendell_reply(text, files)
+  W->>S: read the files
+  W->>You: message with the files
+```
+
+## Reminders
+
+Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCode config). The agent creates a schedule in the conversation's session with `schedule_create`. When it fires, the session gets the schedule's prompt as a new turn, and the agent posts in the conversation.
+
+- A schedule fires once (`in 20 minutes`, or at a time), at an interval (`every 1 hour`) or on a cron (`0 9 * * 1-5`).
+- Times use `WENDELL_TIME_ZONE` (default `America/New_York`), unless you name another time zone.
+- A reminder pings only the person who asked. The agent sets `mention` in `wendell_reply`, and Discord allows only that user. Wendell never pings roles, `@everyone` or `@here`.
+- A check that reports only problems stays silent when everything is fine.
+- Wendell attaches his tools to all known conversations when he starts, so a schedule can post after a restart.
+- `/reminders` shows the reminders of the current conversation with their next run. Only you see the answer. `/reminders cancel:<name>` cancels one; type a part of the name to select it.
+- Commands in a check still need approval (see [Approvals](#approvals)). In `review` mode, the reviewer approves what clearly follows from the conversation. Otherwise, buttons appear and the check waits for a person.
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant W as Wendell
+  participant S as OpenCode server
+  You->>W: Wendell, remind me in 2 minutes to drink water
+  W->>S: prompt
+  S->>S: schedule_create (in 2 minutes)
+  S->>W: wendell_reply("Okay, in 2 minutes")
+  Note over S: 2 minutes later, also after a restart of Wendell
+  S->>S: the schedule wakes the session
+  S->>W: wendell_reply(text, mention: your user ID)
+  W->>You: @you Time to drink some water
+```
+
+## Discord tools
+
+The agent speaks only through these tools.
+
+| Tool | Use |
+| --- | --- |
+| `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping). |
+| `wendell_react` | Add an emoji reaction to a message. |
+| `wendell_start_task` | Move real work into a thread, or start a sub-task. |
+| `wendell_continue_task` | Send a request to an existing task. |
+| `wendell_update_task` | Record the summary and status of a task. |
+| `wendell_set_model` | Change the model of the conversation or the server default. |
+
+## Slash commands
+
+| Command | What it does |
+| --- | --- |
+| `/model` | Change the model of this conversation, or the server default with `scope`. |
+| `/models` | Show the model of this conversation and the server default. Only you see the answer. |
+| `/auto` | Show or set the approval mode of this conversation. |
+| `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. Only you see the answer. |
 
 ## Models
 
@@ -183,6 +264,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |
 | How long Wendell waits to batch messages | `WENDELL_BATCH_WINDOW` |
+| The time zone for reminders | `WENDELL_TIME_ZONE` (default `America/New_York`) |
 | The model of one conversation, or of a server | `/model`, or ask Wendell |
 
 Changes to `persona.md`, `model` and `allow` reach existing sessions after a restart. Tasks are recorded in `.data/tasks.json`, model choices in `.data/models.json`, approval modes in `.data/approvals.json`.
