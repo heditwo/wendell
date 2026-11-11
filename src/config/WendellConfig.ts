@@ -28,6 +28,11 @@ export const BusyMode = Schema.Literals(["interrupt", "steer", "wait"])
 
 export type BusyMode = typeof BusyMode.Type
 
+/** Tokens. `0` leaves compaction to OpenCode alone. */
+export const ContextLimit = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+
+export const DEFAULT_CONTEXT_LIMIT = 256_000
+
 export const ServerPrefs = Schema.Struct({
   agent: Schema.optional(Schema.NonEmptyString),
   model: Schema.optional(Schema.NonEmptyString),
@@ -38,6 +43,8 @@ export const ServerPrefs = Schema.Struct({
   busy: Schema.optional(BusyMode),
   /** Provider IDs that Wendell must never use on this server, such as a work account. */
   blockedProviders: Schema.optional(Schema.Array(Schema.NonEmptyString)),
+  /** Compact a session once its context reaches this many tokens. Overrides the top-level `contextLimit`. */
+  contextLimit: Schema.optional(ContextLimit),
 })
 
 export interface ServerPrefs extends Schema.Schema.Type<typeof ServerPrefs> {}
@@ -62,6 +69,7 @@ export const DEFAULT_TRANSCRIBE_COMMAND: readonly [string, ...Array<string>] = [
 export const File = Schema.Struct({
   defaultServer: Schema.optional(ServerName),
   hideSessions: Schema.optional(Schema.Boolean),
+  contextLimit: Schema.optional(ContextLimit),
   transcription: Schema.optional(Transcription),
   servers: Schema.optional(
     Schema.Record(Schema.String, ServerPrefs).check(
@@ -84,6 +92,8 @@ export interface Interface {
   /** The speech-to-text command, or none when transcription is off. */
   readonly transcribeCommand: Option.Option<readonly [string, ...Array<string>]>
   readonly serverPrefs: (name: ServerName) => ServerPrefs
+  /** The context size at which Wendell compacts a session on this server, or none to leave it to OpenCode. */
+  readonly contextLimit: (name: ServerName) => Option.Option<number>
   readonly channel: (channelId: ChannelId) => Option.Option<Channel>
 }
 
@@ -109,6 +119,10 @@ export const fromFile = (file: File): Interface => ({
       ? Option.none()
       : Option.some(file.transcription?.command ?? DEFAULT_TRANSCRIBE_COMMAND),
   serverPrefs: (name) => file.servers?.[name] ?? {},
+  contextLimit: (name) =>
+    Option.some(file.servers?.[name]?.contextLimit ?? file.contextLimit ?? DEFAULT_CONTEXT_LIMIT).pipe(
+      Option.filter((limit) => limit > 0),
+    ),
   channel: (channelId) => Option.fromNullishOr(file.channels?.[channelId]),
 })
 

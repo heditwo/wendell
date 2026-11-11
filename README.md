@@ -65,6 +65,7 @@ flowchart LR
 ```
 
 - Each channel, task thread and DM has one OpenCode session. Sessions use the server owner's agent, skills and MCP servers, plus Wendell's persona from `persona.md`.
+- Long sessions are compacted: after each turn, Wendell checks the size of the session's context. When it reaches `contextLimit` (default 256k tokens), he asks OpenCode to compact it, whatever the model's window is. OpenCode's own automatic compaction stays on for smaller models.
 - Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 - Channels work in Wendell's root directory on the server (for example `~/wendell`). Each task gets a subdirectory (`~/wendell/todo-app`). Each DM gets `~/wendell/dm-<user ID>`.
 - A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory.
@@ -314,6 +315,8 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
 | `transcription.command` | Local speech-to-text command for voice messages. `{file}` becomes a 16 kHz mono WAV file. The text comes from stdout. Default: `["voxtype", "-q", "transcribe", "{file}"]`. Needs `ffmpeg`. |
 | `transcription.enabled` | Set to `false` to turn off transcription. Default: `true`. |
+| `contextLimit` | Context size in tokens at which Wendell compacts a session, for every model. Default: `256000`. `0` leaves compaction to OpenCode alone. |
+| `servers.<name>.contextLimit` | The same, for one server. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |
 | `servers.<name>.agent` | Agent for Wendell's sessions. Default: the server's default agent. |
 | `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Pick a fast one, because chat should feel quick. `/model` can override it (see [Models](#models)). |

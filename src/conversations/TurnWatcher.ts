@@ -1,5 +1,6 @@
 import { type Session, SessionMessage } from "@opencode/client/effect"
 import { Clock, Deferred, Duration, Effect, Fiber, HashMap, HashSet, Option, Ref, Schedule, Stream } from "effect"
+import { WendellConfig } from "../config/WendellConfig.ts"
 import { Discord } from "../discord/Discord.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
@@ -23,6 +24,7 @@ const LISTENER_RESTART = Duration.seconds(5)
 export const make = (sessions: Sessions.Interface) =>
   Effect.gen(function* () {
     const discord = yield* Discord.Service
+    const config = yield* WendellConfig.Service
     const activity = yield* Activity.Service
     const tasks = yield* Tasks.Service
     const scope = yield* Effect.scope
@@ -30,6 +32,33 @@ export const make = (sessions: Sessions.Interface) =>
     const watching = yield* Ref.make(HashMap.empty<string, number>())
 
     const ignore = <A, E>(effect: Effect.Effect<A, E>) => Effect.ignore(effect)
+
+    // OpenCode's own threshold is a share of the model's window; this keeps every model under one fixed size.
+    const compactIfFull = Effect.fn("TurnWatcher.compactIfFull")(function* (conversation: Conversation, sessionID: Session.ID) {
+      const limit = config.contextLimit(conversation.remote.name)
+
+      if (Option.isNone(limit)) return
+
+      const page = yield* conversation.remote.client.message.list({ sessionID, order: "desc", limit: 5 })
+
+      // A compaction after the last answer already made room; the answer's token count is from before it.
+      const last = page.data.find((message) => message.type === "assistant" || message.type === "compaction")
+
+      if (last === undefined || last.type !== "assistant" || last.tokens === undefined) return
+
+      const { input, output, cache } = last.tokens
+      const size = input + output + cache.read + cache.write
+
+      if (size < limit.value) return
+
+      yield* conversation.remote.client.session.compact({ sessionID })
+      yield* Effect.logInfo("Compacted a full session", {
+        server: conversation.remote.name,
+        channelId: conversation.channelId,
+        tokens: size,
+        limit: limit.value,
+      })
+    }, Effect.catch((cause) => Effect.logWarning("Could not compact a session", { cause })))
 
     const lastText = Effect.fn("Conversations.lastText")(function* (conversation: Conversation, sessionID: Session.ID) {
       const page = yield* conversation.remote.client.message.list({
@@ -243,6 +272,7 @@ export const make = (sessions: Sessions.Interface) =>
       const failed = yield* Ref.get(failure)
 
       yield* tasks.touch(channelId).pipe(Effect.ignore)
+      yield* compactIfFull(conversation, sessionID).pipe(Effect.forkIn(scope))
 
       if (Option.isSome(failed) && (turn.expectReply || turn.progress || foreign)) {
         yield* discord.send(channelId, `⚠️ I ran into an error: ${failed.value}\n-# If it keeps happening, pick another model with /model.`, Option.none())
