@@ -19,6 +19,7 @@ import { Settings } from "./Settings.ts"
 import { Tasks } from "./Tasks.ts"
 import { ToolCalls } from "./ToolCalls.ts"
 import { ToolWorker } from "./ToolWorker.ts"
+import { Transcriber } from "./Transcriber.ts"
 import { WendellConfig } from "./WendellConfig.ts"
 
 const Platform = Layer.mergeAll(BunServices.layer, BunHttpClient.layer, Settings.layer, Activity.layer, Recent.layer, ToolCalls.layer)
@@ -27,7 +28,7 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, Media.layer).pipe(
+const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, Media.layer, Transcriber.layer).pipe(
   Layer.provideMerge(Models.layer),
 )
 

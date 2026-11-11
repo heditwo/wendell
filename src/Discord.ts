@@ -205,6 +205,7 @@ const toInbound = (me: UserId, data: DiscordTypes.GatewayMessageCreateDispatchDa
     size: attachment.size,
   })),
   stickers: (data.sticker_items ?? []).map((sticker) => sticker.name),
+  transcript: Option.none(),
   mentionsMe: data.mentions.some((user) => user.id === me),
   repliesToMe: data.referenced_message?.author.id === me,
 })

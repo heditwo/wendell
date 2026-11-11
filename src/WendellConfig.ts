@@ -37,9 +37,20 @@ export const Channel = Schema.Struct({
 
 export interface Channel extends Schema.Schema.Type<typeof Channel> {}
 
+/** Local speech-to-text for voice messages. The command gets a 16 kHz mono WAV file in place of `{file}`. */
+export const Transcription = Schema.Struct({
+  enabled: Schema.optional(Schema.Boolean),
+  command: Schema.optional(Schema.NonEmptyArray(Schema.NonEmptyString)),
+})
+
+export interface Transcription extends Schema.Schema.Type<typeof Transcription> {}
+
+export const DEFAULT_TRANSCRIBE_COMMAND: readonly [string, ...Array<string>] = ["voxtype", "-q", "transcribe", "{file}"]
+
 export const File = Schema.Struct({
   defaultServer: Schema.optional(ServerName),
   hideSessions: Schema.optional(Schema.Boolean),
+  transcription: Schema.optional(Transcription),
   servers: Schema.optional(
     Schema.Record(Schema.String, ServerPrefs).check(
       Schema.isPropertyNames(ServerName, { message: "Every key in servers must be a paired server name" }),
@@ -58,6 +69,8 @@ export interface Interface {
   readonly defaultServer: Option.Option<ServerName>
   /** Archive Wendell's sessions, so the OpenCode desktop does not list them. */
   readonly hideSessions: boolean
+  /** The speech-to-text command, or none when transcription is off. */
+  readonly transcribeCommand: Option.Option<readonly [string, ...Array<string>]>
   readonly serverPrefs: (name: ServerName) => ServerPrefs
   readonly channel: (channelId: ChannelId) => Option.Option<Channel>
 }
@@ -79,6 +92,10 @@ export const describeGoal = (goal: Goal) =>
 export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
   hideSessions: file.hideSessions ?? true,
+  transcribeCommand:
+    file.transcription?.enabled === false
+      ? Option.none()
+      : Option.some(file.transcription?.command ?? DEFAULT_TRANSCRIBE_COMMAND),
   serverPrefs: (name) => file.servers?.[name] ?? {},
   channel: (channelId) => Option.fromNullishOr(file.channels?.[channelId]),
 })

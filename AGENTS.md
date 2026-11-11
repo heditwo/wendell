@@ -47,6 +47,7 @@ flowchart LR
   K --> C
   W --> M
   L --> MD[Media.ts]
+  L --> TR[Transcriber.ts]
   W --> MD
   MD --> F
   K -. schedules .-> F
@@ -57,6 +58,7 @@ flowchart LR
 - `Places.ts` decides where a message's conversation lives: a channel, a task thread (`Tasks.ts`) or a DM, and on which server.
 - `Conversations.ts` owns sessions, their context entries and the turn watcher (👀, typing, status line, error and silence fallbacks). It also follows turns that Wendell did not start (a fired schedule, an `image_generate` notice): it records the inbox IDs of its own prompts, and watches each other delivery to a root session that has no active watcher. These turns get no 👀, no status line and no silence fallback, but errors are posted. At startup it attaches the client MCP tools to every known directory (tasks and `dm-*`), so a schedule can post after a restart.
 - `Media.ts` saves incoming Discord attachments on the server (`attachments/<message id>/<safe name>`, 25 MB limit, through `Fleet.writeFile`, never on the local disk) and reads outgoing files for `wendell_reply` (`Fleet.readFile`). Outgoing files must be in the conversation's directory, its tasks' directories or the server's tmp directory, and never `.env` (`Policy.isSecretFile`). Images go to the model as `file://` prompt attachments.
+- `Transcriber.ts` transcribes voice messages and audio files on Wendell's machine (`ffmpeg` to 16 kHz WAV, then `transcription.command`, default `voxtype`), before routing, so spoken text can address Wendell. It never fails and caches per attachment. Never use a paid transcription service.
 - `Discord.post` sends files as its own multipart request, because dfx sends `payload_json` as a nameless Blob that Bun turns into a file. `allowed_mentions` is always `parse: []`, plus at most one user from `mention`.
 - `Embeds.ts` validates embeds against Discord's limits (10 embeds, 6000 characters, field limits).
 - `Commands.ts` also answers `/reminders`: it lists the session's schedules through the server's schedule API and deletes one with `cancel` (autocomplete over the schedules).

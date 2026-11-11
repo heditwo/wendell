@@ -24,6 +24,8 @@ export const Message = Schema.Struct({
   content: Schema.String,
   attachments: Schema.Array(Attachment),
   stickers: Schema.Array(Schema.String),
+  /** What was said in the message's voice messages and audio files, transcribed on Wendell's machine. */
+  transcript: Schema.Option(Schema.String),
   mentionsMe: Schema.Boolean,
   repliesToMe: Schema.Boolean,
 })
@@ -65,10 +67,15 @@ export const formatSize = (bytes: number) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/** The typed text and the spoken text. Routing uses it, so "Wendell, …" in a voice message addresses him. */
+export const words = (message: Message) =>
+  [message.content, ...Option.toArray(message.transcript)].filter((part) => part.trim() !== "").join("\n")
+
 /** The message as plain text, with its attachments and stickers named. For transcripts and screening. */
 export const plainText = (message: Message) =>
   [
     message.content,
+    ...Option.toArray(message.transcript).map((text) => `[voice message: ${text}]`),
     ...message.attachments.map((attachment) => `[attachment: ${attachment.name}]`),
     ...message.stickers.map((sticker) => `[sticker: ${sticker}]`),
   ]
@@ -104,6 +111,14 @@ export const render = ({ message, route, files }: Routed) => {
   })
 
   if (message.content.trim() !== "") lines.push(escape(message.content))
+
+  Option.match(message.transcript, {
+    onNone: () => undefined,
+    onSome: (text) =>
+      lines.push(
+        `<voice_transcript note="Speech recognition of a voice message. It can contain recognition errors.">${escape(text)}</voice_transcript>`,
+      ),
+  })
 
   lines.push(
     ...files.map(renderFile),

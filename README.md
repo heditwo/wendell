@@ -81,6 +81,13 @@ Files that you send to Wendell go to the OpenCode server, not to the machine tha
 - The agent gets the name, type, size and path of each file. PNG, JPEG, GIF and WebP images also go to the model with the prompt, so it sees them. The model must accept images.
 - Messages with only a file or a sticker work like other messages. For example, reply to Wendell with only a screenshot.
 
+Voice messages and audio files are transcribed on the machine that runs Wendell, without a paid service:
+
+- Wendell converts the audio to a 16 kHz mono WAV file with `ffmpeg`, then runs a local speech-to-text command. The default is [voxtype](https://github.com/peteonrails/voxtype) (`voxtype -q transcribe {file}`), which uses Whisper on your machine.
+- The transcript goes to the agent with the message, and routing uses it. So "Wendell, …" in a voice message addresses him.
+- If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
+- To use another tool, set `transcription.command`. To turn it off, set `transcription.enabled` to `false`. `bun run doctor` checks that the commands exist.
+
 Wendell can also send files:
 
 - The agent attaches files with `files` in `wendell_reply`. Wendell reads them from the server and uploads them to Discord. A message can have at most 10 files, 20 MB for each file and 25 MB in total.
@@ -272,6 +279,8 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | Field | Meaning |
 | --- | --- |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
+| `transcription.command` | Local speech-to-text command for voice messages. `{file}` becomes a 16 kHz mono WAV file. The text comes from stdout. Default: `["voxtype", "-q", "transcribe", "{file}"]`. Needs `ffmpeg`. |
+| `transcription.enabled` | Set to `false` to turn off transcription. Default: `true`. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |
 | `servers.<name>.agent` | Agent for Wendell's sessions. Default: the server's default agent. |
 | `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Pick a fast one, because chat should feel quick. `/model` can override it (see [Models](#models)). |

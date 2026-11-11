@@ -10,6 +10,7 @@ import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
+import { Transcriber } from "./Transcriber.ts"
 import { Settings } from "./Settings.ts"
 
 const MAX_BATCH = 20
@@ -31,6 +32,7 @@ export const layer = Layer.effectDiscard(
     const places = yield* Places.Service
     const recent = yield* Recent.Service
     const media = yield* Media.Service
+    const transcriber = yield* Transcriber.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -44,20 +46,24 @@ export const layer = Layer.effectDiscard(
       )
     })
 
-    const route = Effect.fn("Listener.route")(function* (message: Inbound.Message) {
+    const route = Effect.fn("Listener.route")(function* (received: Inbound.Message) {
+      const message: Inbound.Message = received.authorIsBot
+        ? received
+        : { ...received, transcript: yield* transcriber.transcribe(received) }
+
       if (!message.authorIsBot) yield* recent.record(message)
 
       const place = yield* places.forMessage(message)
 
       const addressed =
-        Inbound.isDirect(message) || message.mentionsMe || message.repliesToMe || Routing.addressesByName(message.content)
+        Inbound.isDirect(message) || message.mentionsMe || message.repliesToMe || Routing.addressesByName(Inbound.words(message))
 
       const quiet = message.authorIsBot || addressed
 
       const candidate = Routing.classify({
         fromBot: message.authorIsBot,
         addressed,
-        named: !quiet && Routing.mentionsName(message.content),
+        named: !quiet && Routing.mentionsName(Inbound.words(message)),
         inTask: Option.isSome(place.task),
         following: quiet ? false : yield* following(message.channelId, place),
         goal: quiet ? Option.none() : place.goal,

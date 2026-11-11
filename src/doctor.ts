@@ -1,6 +1,7 @@
 import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun"
 import { Agent } from "@opencode/client/effect"
 import { Console, Effect, Layer, Option } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { Fleet } from "./Fleet.ts"
 import { Servers } from "./Servers.ts"
 import { Settings } from "./Settings.ts"
@@ -130,6 +131,28 @@ const program = Effect.gen(function* () {
     Option.getOrElse(config.defaultServer, () => paired[0]?.name ?? "none"),
   )
   yield* Effect.forEach(paired, checkServer, { discard: true })
+  yield* checkTranscription
+})
+
+const runs = (program: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+    return yield* spawner.exitCode(ChildProcess.make(program, args)).pipe(
+      Effect.map((code) => code === 0),
+      Effect.orElseSucceed(() => false),
+    )
+  })
+
+const checkTranscription = Effect.gen(function* () {
+  const config = yield* WendellConfig.Service
+
+  if (Option.isNone(config.transcribeCommand)) return yield* check("transcription", true, "off")
+
+  const program = config.transcribeCommand.value[0]
+
+  yield* check("transcription ffmpeg", yield* runs("ffmpeg", ["-version"]), "converts voice messages to WAV")
+  yield* check(`transcription ${program}`, yield* runs(program, ["--help"]), config.transcribeCommand.value.join(" "))
 })
 
 const Main = Layer.mergeAll(Servers.layer, WendellConfig.layer).pipe(
