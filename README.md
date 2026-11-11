@@ -114,7 +114,7 @@ Wendell can also send files:
 - The agent attaches files with `files` in `wendell_reply`. Wendell reads them from the server and uploads them to Discord. A message can have at most 10 files, 20 MB for each file and 25 MB in total.
 - Wendell sends only files from the conversation's directory, the directories of its tasks, and the server's temporary directory (for example `/tmp/opencode`). He never sends `.env` files.
 - For structured results, the agent can add `embeds`. An embed image can show an attached file with `attachment://<file name>`.
-- When you ask for an image, the agent uses OpenCode's `image_generate` tool (`experimental.image_generate` in your OpenCode config). The tool runs in the background. When the image is ready, the agent posts it.
+- When you ask for an image, the agent uses OpenCode's `image_generate` tool. Wendell checks for it when he starts: the server needs an enabled image model, and before OpenCode 2.2.2 also `experimental.image_generate` in its config. Without it, he tells people that he cannot make images on that server. The tool runs in the background. When the image is ready, the agent posts it.
 
 ```mermaid
 sequenceDiagram

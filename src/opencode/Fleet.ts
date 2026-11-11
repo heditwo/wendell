@@ -19,6 +19,28 @@ export interface Remote {
   readonly tmp: AbsolutePath
   readonly client: OpenCodeClient
   readonly prefs: WendellConfig.ServerPrefs
+  /** Optional server features, found when Wendell connects. */
+  readonly capabilities: Capabilities
+}
+
+export interface Capabilities {
+  /** The `image_generate` tool exists: an enabled image model, and the tool is on. */
+  readonly imageGeneration: boolean
+}
+
+// From this version on, `image_generate` is on whenever an image model is available.
+const IMAGE_TOOL_BY_DEFAULT = [2, 2, 2] as const
+
+const versionAtLeast = (version: string, minimum: ReadonlyArray<number>) => {
+  const parts = version.split(/[.-]/).map((part) => Number.parseInt(part, 10))
+
+  for (const [index, wanted] of minimum.entries()) {
+    const actual = parts[index] ?? 0
+
+    if (Number.isNaN(actual) || actual !== wanted) return !Number.isNaN(actual) && actual > wanted
+  }
+
+  return true
 }
 
 export interface Interface {
@@ -219,6 +241,22 @@ export const layer = Layer.effect(
         Effect.mapError(effect, (cause) => new ServerRequestError({ server: remote.name, operation: "Fleet.worktree", cause })),
     )
 
+    const imageGeneration = Effect.fn("Fleet.imageGeneration")(function* (
+      client: OpenCodeClient,
+      version: string,
+      directory: AbsolutePath,
+    ) {
+      const images = yield* client.model.list({ location: { directory }, types: ["image"] })
+
+      if (!images.data.some((model) => model.enabled)) return false
+
+      if (versionAtLeast(version, IMAGE_TOOL_BY_DEFAULT)) return true
+
+      const entries = yield* client.config.get({ location: { directory } })
+
+      return entries.some((entry) => entry.type === "document" && Boolean(entry.info.experimental?.image_generate))
+    }, Effect.orElseSucceed(() => false))
+
     const start = Effect.fn("Fleet.start")(function* (server: Servers.Paired) {
       const client = yield* connect(server)
       const info = yield* client.server.info()
@@ -234,6 +272,9 @@ export const layer = Layer.effect(
         tmp: AbsolutePath.make(info.paths.tmp),
         client,
         prefs: config.serverPrefs(server.name),
+        capabilities: {
+          imageGeneration: yield* imageGeneration(client, info.version, AbsolutePath.make(server.directory)),
+        },
       }
 
       yield* Effect.logInfo("Connected to OpenCode server", {
@@ -241,6 +282,7 @@ export const layer = Layer.effect(
         url: server.url,
         version: info.version,
         directory: server.directory,
+        imageGeneration: remote.capabilities.imageGeneration,
       })
 
       return remote

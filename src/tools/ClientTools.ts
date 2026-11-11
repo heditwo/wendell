@@ -228,7 +228,7 @@ export const make = (
       "set_profile",
       "Change your Discord profile: username, avatar, banner, \"About me\", your nickname in this server, your online status " +
         "and your activity. Set only the fields that should change. Status and activity stay after a restart. " +
-        "To make a new avatar, create the image with image_generate first, then pass its path.",
+        "For a new avatar, pass the path of an image file on the server.",
       SetProfileArgs,
       (input) => ToolCalls.Call.SetProfile({ change: input }),
     ),
