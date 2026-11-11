@@ -107,7 +107,7 @@ For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lin
 - Speech recognition often mishears "Wendell". So a voice message without his name still goes to the screen, which knows about the problem, instead of being ignored.
 - If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
 - `bun run doctor` checks the provider: that the program and `ffmpeg` exist, or that the endpoint answers.
-- To add a provider, implement `Provider.Provider` in `src/transcription/` and add a case to `SpeechToText.layer`.
+- To add a provider, write a module in `src/transcription/` with its `Config` schema and a `make` that returns a `Provider.Provider`, then add it to `TranscriptionConfig.Config` and `SpeechToText.layer`.
 
 Wendell can also send files:
 

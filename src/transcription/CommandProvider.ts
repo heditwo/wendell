@@ -1,9 +1,21 @@
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, Schema } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import path from "node:path"
-import type { WendellConfig } from "../config/WendellConfig.ts"
 import { Files } from "../shared/Files.ts"
 import { Provider } from "./Provider.ts"
+
+/** A speech-to-text program on Wendell's machine. `{file}` in `command` becomes the audio file; the text comes from stdout. */
+export const Config = Schema.Struct({
+  provider: Schema.Literal("command"),
+  command: Schema.NonEmptyArray(Schema.NonEmptyString),
+  /** Convert the audio to a 16 kHz mono WAV file with ffmpeg first. Default: `true`. */
+  convert: Schema.optional(Schema.Boolean),
+  /** Regular expressions for output lines that are not part of the transcript, such as progress messages. */
+  ignoreLines: Schema.optional(Schema.Array(Schema.String)),
+})
+
+export interface Config extends Schema.Schema.Type<typeof Config> {}
+
 
 const failed = (step: string) => (cause: unknown) => new Provider.TranscriptionError({ step, cause })
 
@@ -16,7 +28,7 @@ export const cleanOutput = (output: string, ignore: ReadonlyArray<RegExp>) =>
     .trim()
 
 /** Runs a speech-to-text program on this machine. */
-export const make = Effect.fn("CommandProvider.make")(function* (config: WendellConfig.CommandTranscription) {
+export const make = Effect.fn("CommandProvider.make")(function* (config: Config) {
   const fs = yield* FileSystem.FileSystem
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const convert = config.convert ?? true

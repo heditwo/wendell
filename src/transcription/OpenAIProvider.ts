@@ -1,20 +1,34 @@
-import { Config, Effect, Option, Redacted, Schema } from "effect"
+import { Effect, Config as EffectConfig, Option, Redacted, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-import type { WendellConfig } from "../config/WendellConfig.ts"
 import { Provider } from "./Provider.ts"
 
 const Response = Schema.Struct({ text: Schema.String })
 
+/** Any OpenAI-compatible `POST <url>/audio/transcriptions` endpoint, local (speaches, LocalAI, ...) or hosted. */
+export const Config = Schema.Struct({
+  provider: Schema.Literal("openai"),
+  /** The API base, for example `http://localhost:8000/v1`. */
+  url: Schema.NonEmptyString,
+  model: Schema.NonEmptyString,
+  /** Name of the environment variable with the API key, when the endpoint needs one. */
+  apiKeyEnv: Schema.optional(Schema.NonEmptyString),
+  /** ISO 639-1 language hint, for example `en`. */
+  language: Schema.optional(Schema.NonEmptyString),
+})
+
+export interface Config extends Schema.Schema.Type<typeof Config> {}
+
+
 const failed = (step: string) => (cause: unknown) => new Provider.TranscriptionError({ step, cause })
 
 /** Calls an OpenAI-compatible transcription endpoint: a local server such as speaches or LocalAI, or a hosted API. */
-export const make = Effect.fn("OpenAIProvider.make")(function* (config: WendellConfig.OpenAITranscription) {
+export const make = Effect.fn("OpenAIProvider.make")(function* (config: Config) {
   const http = yield* HttpClient.HttpClient
   const base = config.url.replace(/\/+$/, "")
 
   const apiKey = yield* Option.match(Option.fromUndefinedOr(config.apiKeyEnv), {
     onNone: () => Effect.succeed(Option.none<Redacted.Redacted>()),
-    onSome: (name) => Config.Redacted(name).pipe(Config.option),
+    onSome: (name) => EffectConfig.Redacted(name).pipe(EffectConfig.option),
   })
 
   const authorized = (request: HttpClientRequest.HttpClientRequest) =>

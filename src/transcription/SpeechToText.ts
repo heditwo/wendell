@@ -3,11 +3,12 @@ import { WendellConfig } from "../config/WendellConfig.ts"
 import { CommandProvider } from "./CommandProvider.ts"
 import { OpenAIProvider } from "./OpenAIProvider.ts"
 import type { Provider } from "./Provider.ts"
+import type { TranscriptionConfig } from "./TranscriptionConfig.ts"
 
 /** The configured provider, or none when transcription is off. */
 export class Service extends Context.Service<Service, Option.Option<Provider.Provider>>()("wendell/SpeechToText") {}
 
-const provider = (config: WendellConfig.Transcription) => {
+const provider = (config: TranscriptionConfig.Config) => {
   switch (config.provider) {
     case "off":
       return Effect.succeed(Option.none<Provider.Provider>())
