@@ -74,33 +74,72 @@ export const make = (sessions: Sessions.Interface) =>
       const outcome = yield* Deferred.make<void>()
       const failure = yield* Ref.make(Option.none<string>())
 
-      const engaged = yield* Ref.make(false)
+      const acknowledged = yield* Ref.make(false)
+      // After a reaction, closing text from the model is not posted, so it must not show typing.
+      const reacted = yield* Ref.make(false)
+      const working = yield* Ref.make(false)
+      // Code Mode calls whose code is not known yet: a call that only reacts must not show typing.
+      const pendingCode = yield* Ref.make(HashSet.empty<string>())
 
-      const engage = Effect.gen(function* () {
-        if (yield* Ref.getAndSet(engaged, true)) return
+      // 👀 says "seen". Typing waits until Wendell starts to write or to work, so a lone reaction never shows it.
+      const acknowledge = Effect.gen(function* () {
+        if (yield* Ref.getAndSet(acknowledged, true)) return
 
         yield* Option.match(turn.trigger, {
           onNone: () => Effect.void,
           onSome: ({ channelId: where, messageId }) => ignore(discord.react(where, messageId, WATCHING)),
         })
+      })
+
+      const startWorking = Effect.gen(function* () {
+        if (!turn.progress && turn.lazyProgress !== true && !foreign) return false
+
+        if (yield* Ref.getAndSet(working, true)) return true
+
+        yield* acknowledge
 
         const fiber = yield* ignore(discord.typing(channelId)).pipe(Effect.repeat(Schedule.spaced(TYPING_EVERY)), Effect.forkIn(scope))
 
         yield* Ref.set(typing, Option.some(fiber))
+
+        return true
       })
 
       const onDelivered = Effect.gen(function* () {
         yield* Ref.set(delivered, true)
 
-        if (turn.progress) yield* engage
+        if (turn.progress) yield* acknowledge
       })
+
+      const onCode = (callID: string, input: Progress.CodeModeInput) =>
+        Effect.gen(function* () {
+          const pending = yield* Ref.modify(pendingCode, (all) => [HashSet.has(all, callID), HashSet.remove(all, callID)])
+
+          if (!pending) return
+
+          const code = input.code ?? ""
+
+          if (Progress.callsReaction(code)) yield* Ref.set(reacted, true)
+
+          yield* Option.match(Progress.calledTool(code), {
+            onNone: () => Effect.void,
+            onSome: (tool) => onTool(tool, false),
+          })
+        })
+
+      const onToolStart = (callID: string, name: string, helper: boolean) =>
+        Effect.gen(function* () {
+
+          if (!helper && Progress.isCodeMode(name)) return yield* Ref.update(pendingCode, HashSet.add(callID))
+
+          yield* onTool(name, helper)
+        })
 
       const onTool = (name: string, helper: boolean) =>
         Effect.gen(function* () {
-          // A lone reaction is a full answer, so it does not need 👀 or typing.
-          if (!(yield* Ref.get(engaged)) && turn.lazyProgress === true && !name.endsWith("react")) yield* engage
+          if (Progress.isReaction(name)) return yield* Ref.set(reacted, true)
 
-          if (!(yield* Ref.get(engaged))) return
+          if (!(yield* startWorking)) return
 
           const label = Progress.label(name).pipe(Option.map((text) => (helper ? `Helper: ${text}` : text)))
 
@@ -128,6 +167,8 @@ export const make = (sessions: Sessions.Interface) =>
           types: [
             "session.inbox.delivered",
             "session.tool.input.started",
+            "session.tool.called",
+            "session.text.started",
             "session.execution.succeeded",
             "session.execution.failed",
             "session.execution.interrupted",
@@ -145,12 +186,26 @@ export const make = (sessions: Sessions.Interface) =>
 
               if (event.type === "server.connected" || !(yield* Ref.get(delivered))) return
 
+              // Plain text is posted only when someone waits for an answer, so only then is it "typing".
+
+              if (event.type === "session.text.started") {
+                return event.data.sessionID === sessionID && turn.expectReply && !(yield* Ref.get(reacted))
+                  ? yield* startWorking.pipe(Effect.asVoid)
+                  : undefined
+              }
+
+              if (event.type === "session.tool.called") {
+                return event.data.sessionID === sessionID
+                  ? yield* onCode(event.data.id, Option.getOrElse(Progress.decodeCodeModeInput(event.data.input), () => ({})))
+                  : undefined
+              }
+
               if (event.type === "session.tool.input.started") {
-                if (event.data.sessionID === sessionID) return yield* onTool(event.data.name, false)
+                if (event.data.sessionID === sessionID) return yield* onToolStart(event.data.id, event.data.name, false)
 
                 const root = yield* sessions.rootOf(conversation.remote, event.data.sessionID)
 
-                return Option.contains(root, sessionID) ? yield* onTool(event.data.name, true) : undefined
+                return Option.contains(root, sessionID) ? yield* onToolStart(event.data.id, event.data.name, true) : undefined
               }
 
               if (event.data.sessionID !== sessionID) return
