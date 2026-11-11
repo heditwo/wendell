@@ -10,10 +10,12 @@ import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
 import { Listener } from "./Listener.ts"
 import { Media } from "./Media.ts"
+import { Memory } from "./Memory.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { Profile } from "./Profile.ts"
 import { Recent } from "./Recent.ts"
+import { Recollection } from "./Recollection.ts"
 import { Reviewer } from "./Reviewer.ts"
 import { Screen } from "./Screen.ts"
 import { Servers } from "./Servers.ts"
@@ -30,9 +32,17 @@ const Configuration = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.l
 
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-const Domain = Layer.mergeAll(Conversations.layer, Screen.layer, Reviewer.layer, ApprovalModes.layer, BusyModes.layer, Media.layer, Transcriber.layer, Profile.layer).pipe(
-  Layer.provideMerge(Models.layer),
-)
+const Domain = Layer.mergeAll(
+  Conversations.layer,
+  Screen.layer,
+  Reviewer.layer,
+  ApprovalModes.layer,
+  BusyModes.layer,
+  Media.layer,
+  Transcriber.layer,
+  Profile.layer,
+  Recollection.layer,
+).pipe(Layer.provideMerge(Layer.mergeAll(Models.layer, Memory.layer)))
 
 const Workers = Layer.mergeAll(Listener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
   Layer.provide(Places.layer),

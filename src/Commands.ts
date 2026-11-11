@@ -5,6 +5,7 @@ import { BusyModes } from "./BusyModes.ts"
 import { Conversations } from "./Conversations.ts"
 import { Discord } from "./Discord.ts"
 import { Fleet } from "./Fleet.ts"
+import { Memory } from "./Memory.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { SessionKey } from "./SessionKey.ts"
@@ -61,6 +62,11 @@ const specs: ReadonlyArray<Discord.CommandSpec> = [
         ],
       },
     ],
+  },
+  {
+    name: "memory",
+    description: "Show what Wendell remembers about you and this server, or make him forget a note.",
+    options: [{ name: "forget", description: "The note to forget.", required: false, autocomplete: true, choices: [] }],
   },
   {
     name: "reminders",
@@ -144,6 +150,7 @@ export const layer = Layer.effectDiscard(
     const conversations = yield* Conversations.Service
     const fleet = yield* Fleet.Service
     const approvalModes = yield* ApprovalModes.Service
+    const memory = yield* Memory.Service
     const busyModes = yield* BusyModes.Service
 
     const describe = Effect.fn("Commands.describe")(function* (place: Places.Place, model: Option.Option<string>) {
@@ -270,6 +277,57 @@ export const layer = Layer.effectDiscard(
       return { remote, schedules: all.filter((schedule) => schedule.status !== "done") }
     })
 
+    // People may see and remove their own notes and this server's notes, never notes about someone else.
+    const memoryOf = Effect.fn("Commands.memoryOf")(function* (call: Discord.CommandCall) {
+      const place: Memory.Place = { guildId: call.member.guildId, channelId: call.channelId }
+
+      const scopes: ReadonlyArray<Memory.Scope> = [
+        { about: "person", userId: call.member.userId },
+        ...Option.toArray(call.member.guildId).map((guildId): Memory.Scope => ({ about: "server", guildId })),
+      ]
+
+      const notes = yield* Effect.forEach(scopes, (scope) =>
+        memory.recall(scope, place).pipe(Effect.map((found) => ({ scope, notes: found }))),
+      )
+
+      return { place, scopes, notes }
+    })
+
+    const describeNote = (note: Memory.Note) => `• ${note.text} \`${note.id}\`${note.private ? " (DMs only)" : ""}`
+
+    const showMemory = Effect.fn("Commands.showMemory")(function* (call: Discord.CommandCall) {
+      yield* discord.deferCommand(call, true)
+
+      const answer = yield* Effect.gen(function* () {
+        const { place, scopes, notes } = yield* memoryOf(call)
+        const forget = option(call, "forget")
+
+        if (Option.isSome(forget)) {
+          const note = yield* memory.forget(forget.value.trim(), scopes, place).pipe(Effect.option)
+
+          return Option.match(note, {
+            onNone: () => "I have no such note about you or this server.",
+            onSome: (found) => `Forgotten: ${found.text}`,
+          })
+        }
+
+        const sections = notes.map(({ scope, notes: found }) =>
+          [
+            scope.about === "person" ? "**About you**" : "**About this server**",
+            ...(found.length === 0 ? ["Nothing yet."] : found.map(describeNote)),
+          ].join("\n"),
+        )
+
+        return [...sections, "-# Use `/memory forget:` to remove a note."].join("\n\n")
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not answer /memory", { cause }).pipe(Effect.as("I could not read my memory. Try again.")),
+        ),
+      )
+
+      yield* discord.editCommandAnswer(call, answer)
+    })
+
     const reminders = Effect.fn("Commands.reminders")(function* (call: Discord.CommandCall) {
       yield* discord.deferCommand(call, true)
 
@@ -304,6 +362,8 @@ export const layer = Layer.effectDiscard(
     const command = (call: Discord.CommandCall) => {
       if (call.name === "reminders") return reminders(call)
 
+      if (call.name === "memory") return showMemory(call)
+
       if (call.name === "model") return changeModel(call)
 
       if (call.name === "auto") return approvals(call)
@@ -329,6 +389,19 @@ export const layer = Layer.effectDiscard(
         Option.map((focused) => focused.value),
         Option.getOrElse(() => ""),
       )
+
+      if (call.name === "memory") {
+        const { notes } = yield* memoryOf(call)
+        const wanted = query.toLowerCase()
+
+        const choices = notes
+          .flatMap(({ notes: found }) => found)
+          .filter((note) => note.text.toLowerCase().includes(wanted) || note.id.includes(wanted))
+          .slice(0, MAX_CHOICES)
+          .map((note) => ({ name: note.text.slice(0, 100), value: note.id }))
+
+        return yield* discord.answerAutocomplete(call, choices)
+      }
 
       if (call.name === "reminders") {
         const found = yield* reminderChoices(call, query).pipe(

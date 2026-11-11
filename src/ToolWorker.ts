@@ -9,10 +9,12 @@ import { Fleet } from "./Fleet.ts"
 import type { ChannelId, MessageId } from "./Ids.ts"
 import { Inbound } from "./Inbound.ts"
 import { Media } from "./Media.ts"
+import { Memory } from "./Memory.ts"
 import { Models } from "./Models.ts"
 import { Places } from "./Places.ts"
 import { Profile } from "./Profile.ts"
 import { Recent } from "./Recent.ts"
+import { Recollection } from "./Recollection.ts"
 import { Routing } from "./Routing.ts"
 import { SessionKey } from "./SessionKey.ts"
 import { Tasks } from "./Tasks.ts"
@@ -46,6 +48,8 @@ export const layer = Layer.effectDiscard(
     const models = yield* Models.Service
     const media = yield* Media.Service
     const profile = yield* Profile.Service
+    const memory = yield* Memory.Service
+    const recollection = yield* Recollection.Service
 
     // Subagents' tool calls belong to the conversation at the top of their session tree.
     const channelOf = (remote: Fleet.Remote, sessionID: string) =>
@@ -148,7 +152,13 @@ export const layer = Layer.effectDiscard(
       yield* conversations
         .deliver(
           places.forTask(task),
-          yield* handoff(channelId, remote.directory, message, brief, title),
+          [
+            // A new task session has not seen any notes yet.
+            ...(yield* recollection.before(`${remote.name}/${threadId}`, { guildId: message.guildId, channelId: threadId }, [
+              { userId: message.authorId, name: message.authorName },
+            ])),
+            yield* handoff(channelId, remote.directory, message, brief, title),
+          ].join("\n\n"),
           { expectReply: true, progress: true, trigger: Option.some({ channelId, messageId: message.id }) },
           Media.images(Media.plan(remote.directory, message)),
         )
@@ -368,6 +378,54 @@ export const layer = Layer.effectDiscard(
       return `Changed: ${changed.join(", ")}.`
     })
 
+    const memoryPlace = Effect.fn("ToolWorker.memoryPlace")(function* (channelId: ChannelId) {
+      const info = yield* discord
+        .channel(channelId)
+        .pipe(Effect.mapError(() => new ToolCalls.ToolFailure({ message: "Could not read this channel." })))
+
+      return { guildId: info.guildId, channelId } satisfies Memory.Place
+    })
+
+    const remember = Effect.fn("ToolWorker.remember")(function* (
+      channelId: ChannelId,
+      input: Extract<ToolCalls.Call, { readonly _tag: "Remember" }>,
+    ) {
+      const place = yield* memoryPlace(channelId)
+
+      const scope: Memory.Scope = yield* input.about === "person"
+        ? Option.match(input.userId, {
+            onNone: () => fail("user_id is required for a note about a person."),
+            onSome: (userId) => Effect.succeed<Memory.Scope>({ about: "person", userId }),
+          })
+        : Option.match(place.guildId, {
+            onNone: () => fail("DMs have no server. Use about=person."),
+            onSome: (guildId) => Effect.succeed<Memory.Scope>({ about: "server", guildId }),
+          })
+
+      const expiresAt = yield* Option.match(input.expires, {
+        onNone: () => Effect.succeed(Option.none<number>()),
+        onSome: (text) => {
+          const time = Date.parse(text)
+
+          return Number.isNaN(time) ? fail(`expires "${text}" is not a date.`) : Effect.succeed(Option.some(time))
+        },
+      })
+
+      const note = yield* memory
+        .remember({ scope, text: input.text, replaces: input.replaces, expiresAt, messageId: input.messageId }, place)
+        .pipe(
+          Effect.catchTags({
+            "Memory.MemoryFull": (error) => fail(error.message),
+            "Memory.NoteNotFound": (error) => fail(`No note ${error.id} here to replace.`),
+            "Memory.MemoryFileError": () => fail("Could not save your memory."),
+          }),
+        )
+
+      yield* Effect.logInfo("Remembered a note", { about: input.about, id: note.id, private: note.private })
+
+      return `Saved note ${note.id}${note.private ? " (private to DMs)" : ""}. Do not announce it unless someone asked you to remember it.`
+    })
+
     const handle = Effect.fn("ToolWorker.handle")(function* (request: ToolCalls.Request) {
       const channelId = yield* channelOf(yield* remoteOf(request), request.sessionID)
 
@@ -514,6 +572,25 @@ export const layer = Layer.effectDiscard(
           }),
 
         SetProfile: ({ change }) => setProfile(request, channelId, change),
+
+        Remember: (input) => remember(channelId, input),
+
+        Forget: ({ id }) =>
+          Effect.gen(function* () {
+            const place = yield* memoryPlace(channelId)
+            const scopes = yield* memory.allScopes(place)
+
+            const note = yield* memory.forget(id, scopes, place).pipe(
+              Effect.catchTags({
+                "Memory.NoteNotFound": () => fail(`No note ${id} here. Use an ID from the <memory> blocks.`),
+                "Memory.MemoryFileError": () => fail("Could not save your memory."),
+              }),
+            )
+
+            yield* Effect.logInfo("Forgot a note", { id })
+
+            return `Forgot: ${note.text}`
+          }),
       })
     })
 

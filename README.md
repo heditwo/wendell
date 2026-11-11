@@ -110,6 +110,32 @@ sequenceDiagram
   W->>You: message with the files
 ```
 
+## Memory
+
+Wendell remembers people the way a thoughtful friend does: not everything, but what matters.
+
+- **Person notes** follow one person into every Discord server where Wendell is. **Server notes** are about one Discord server. Notes that he learns in a DM stay private: they come back only in DMs with that person.
+- He takes notes himself with `wendell_remember` when he learns something lasting: who someone is, what they play or build, how they like him to answer, dates that matter. He does not note passing remarks, task details, secrets or gossip. Time-bound notes expire. When a fact changes, he updates the note. You can also say "remember that …".
+- Before each turn, the notes about the people in the batch and about the server go to the agent, marked as data and not instructions. A conversation gets them again only when they change.
+- Each person and each server has at most 40 notes and 4000 characters. When it is full, the agent must merge or remove notes first.
+- `/memory` shows what he remembers about you and this server. Only you see the answer. `/memory forget:<note>` removes a note. You can see and remove only your own notes and the server's notes.
+- Notes are kept in `.data/memory.json` on the machine that runs Wendell. Nothing goes to a memory service.
+
+Wendell also gets **room context**: up to 8 messages from the last 15 minutes that were not for him, sent with his next turn in that channel. So he knows what the room was talking about when someone turns to him.
+
+```mermaid
+sequenceDiagram
+  participant You
+  participant W as Wendell
+  participant M as .data/memory.json
+  participant A as Agent session
+  You->>W: message
+  W->>M: notes about you and this server
+  W->>A: changed notes, room context, messages
+  A->>W: wendell_remember / wendell_forget
+  W->>M: save the note and where it came from
+```
+
 ## Reminders
 
 Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCode config). The agent creates a schedule in the conversation's session with `schedule_create`. When it fires, the session gets the schedule's prompt as a new turn, and the agent posts in the conversation.
@@ -149,6 +175,8 @@ The agent speaks only through these tools.
 | `wendell_continue_task` | Send a request to an existing task. |
 | `wendell_update_task` | Record the summary and status of a task. |
 | `wendell_set_model` | Change the model of the conversation or the server default. |
+| `wendell_remember` | Keep a note about a person (`about: "person"`, `user_id`) or this server (`about: "server"`). Fields: `text`, `replaces` (a note ID to update), `expires` (a date), `message_id`. |
+| `wendell_forget` | Remove a note by `id`. |
 | `wendell_set_profile` | Change Wendell's Discord profile: `username`, `avatar` and `banner` (image paths on the server, or `null` to remove), `about` ("About me"), `nickname` (in this Discord server), `status` (`online`, `idle`, `dnd`, `invisible`) and `activity` (`{ "type": "listening", "text": "the rain" }`, or `custom` for a custom status). Wendell keeps the status and activity in `.data/profile.json` and sets them again after each reconnect. Discord limits username and avatar changes to about 2 per hour. |
 
 ## Slash commands
@@ -159,6 +187,7 @@ The agent speaks only through these tools.
 | `/models` | Show the model of this conversation and the server default. Only you see the answer. |
 | `/auto` | Show or set the approval mode of this conversation. |
 | `/busy` | What happens when you message Wendell while he works. `interrupt` (default): he reads it at his next step; if he has not read it after 15 seconds, his current step is interrupted. `steer`: at his next step, never interrupted. `wait`: after he finishes. Without a mode, shows the current one. |
+| `/memory` | Show what Wendell remembers about you and this server, or remove a note with `forget`. Only you see the answer. |
 | `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. Only you see the answer. |
 
 ## Models

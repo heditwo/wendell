@@ -24,6 +24,15 @@ export type Call = Data.TaggedEnum<{
   }
   SetModel: { readonly model: string; readonly scope: ModelScope }
   SetProfile: { readonly change: ProfileChange }
+  Remember: {
+    readonly about: "person" | "server"
+    readonly userId: Option.Option<UserId>
+    readonly text: string
+    readonly replaces: Option.Option<string>
+    readonly expires: Option.Option<string>
+    readonly messageId: Option.Option<MessageId>
+  }
+  Forget: { readonly id: string }
 }>
 
 /** `null` removes or clears the field. Fields that are not set stay as they are. */

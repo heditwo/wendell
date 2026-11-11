@@ -8,6 +8,7 @@ import { Inbound } from "./Inbound.ts"
 import { Media } from "./Media.ts"
 import { Places } from "./Places.ts"
 import { Recent } from "./Recent.ts"
+import { Recollection } from "./Recollection.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
 import { Transcriber } from "./Transcriber.ts"
@@ -37,6 +38,7 @@ export const layer = Layer.effectDiscard(
     const media = yield* Media.Service
     const transcriber = yield* Transcriber.Service
     const busyModes = yield* BusyModes.Service
+    const recollection = yield* Recollection.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -81,6 +83,8 @@ export const layer = Layer.effectDiscard(
 
       const routeTaken = verdict.skip ? Routing.Route.Ignored() : candidate
 
+      if (!message.authorIsBot && Routing.Route.$is("Ignored")(routeTaken)) yield* recollection.overheard(message)
+
       return { message, place, route: routeTaken, confident: verdict.confident } satisfies Item
     })
 
@@ -107,9 +111,21 @@ export const layer = Layer.effectDiscard(
         Option.map(({ message }) => ({ channelId, messageId: message.id })),
       )
 
+      const people = [
+        ...new Map(
+          batch.flatMap(({ message }) => (message.authorIsBot ? [] : [[message.authorId, message.authorName] as const])),
+        ),
+      ].map(([userId, name]) => ({ userId, name }))
+
+      const recalled = yield* recollection.before(
+        `${conversation.remote.name}/${conversation.channelId}`,
+        { guildId: conversation.guildId, channelId: conversation.channelId },
+        people,
+      )
+
       yield* conversations.deliver(
         conversation,
-        Inbound.renderBatch(routed),
+        [...recalled, Inbound.renderBatch(routed)].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,

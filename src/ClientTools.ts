@@ -93,6 +93,27 @@ const SetProfileArgs = Schema.Struct({
   }),
 })
 
+const RememberArgs = Schema.Struct({
+  about: Schema.Literals(["person", "server"]).annotate({
+    description: '"person": about one person, follows them across servers. "server": about this Discord server and its people as a group.',
+  }),
+  user_id: Schema.optional(UserId).annotate({ description: "For about=person: the person's user ID (author_id in messages)." }),
+  text: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(300)).annotate({
+    description: "One short, self-contained fact, as you would note it: \"Plays OSRS, main account is an ironman.\"",
+  }),
+  replaces: Schema.optional(Schema.NonEmptyString).annotate({
+    description: "ID of a note this one updates or merges (for example m_1a2b3c). Use it instead of adding a near-duplicate.",
+  }),
+  expires: Schema.optional(Schema.NonEmptyString).annotate({
+    description: 'For facts that stop mattering: a date or time, for example "2026-11-20". The note disappears after it.',
+  }),
+  message_id: Schema.optional(MessageId).annotate({ description: "The message you learned it from." }),
+})
+
+const ForgetArgs = Schema.Struct({
+  id: Schema.NonEmptyString.annotate({ description: "ID of the note to remove, for example m_1a2b3c." }),
+})
+
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
 
 const text = (value: string): ClientMcpToolResult => ({ content: [{ type: "text", text: value }] })
@@ -209,6 +230,28 @@ export const make = (
         "To make a new avatar, create the image with image_generate first, then pass its path.",
       SetProfileArgs,
       (input) => ToolCalls.Call.SetProfile({ change: input }),
+    ),
+    tool(
+      "remember",
+      "Keep a note in your long-term memory, about one person or about this server. Notes come back automatically " +
+        "in later conversations. Note what a thoughtful friend would remember: lasting facts, preferences and things " +
+        "that matter to people. Not passing remarks. Notes learned in a DM stay private to DMs with that person.",
+      RememberArgs,
+      (input) =>
+        ToolCalls.Call.Remember({
+          about: input.about,
+          userId: Option.fromUndefinedOr(input.user_id),
+          text: input.text,
+          replaces: Option.fromUndefinedOr(input.replaces),
+          expires: Option.fromUndefinedOr(input.expires),
+          messageId: Option.fromUndefinedOr(input.message_id),
+        }),
+    ),
+    tool(
+      "forget",
+      "Remove a note from your memory, when it is wrong, out of date, or someone asks you to forget it.",
+      ForgetArgs,
+      (input) => ToolCalls.Call.Forget({ id: input.id }),
     ),
   ]
 }
