@@ -1,7 +1,8 @@
-import { Clock, Context, Effect, FileSystem, HashMap, Layer, Option, Ref, Schema, Semaphore } from "effect"
+import { Clock, Context, Effect, HashMap, Layer, Option, Ref, Schema, Semaphore } from "effect"
 import path from "node:path"
 import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 import { Settings } from "../config/Settings.ts"
+import { JsonStore } from "../shared/JsonStore.ts"
 
 /** A scope holds at most this many notes and characters, like a person's working knowledge of someone. */
 export const MAX_NOTES = 40
@@ -56,25 +57,17 @@ export class NoteNotFound extends Schema.TaggedError<NoteNotFound>()("Memory.Not
   id: Schema.String,
 }) {}
 
-export class MemoryFileError extends Schema.TaggedError<MemoryFileError>()("Memory.MemoryFileError", {
-  path: Schema.String,
-  cause: Schema.Defect(),
-}) {}
-
 export interface Interface {
   /** The notes that may be recalled here: no expired notes, and DM notes only in DMs. */
   readonly recall: (scope: Scope, place: Place) => Effect.Effect<ReadonlyArray<Note>>
-  readonly remember: (change: Change, place: Place) => Effect.Effect<Note, MemoryFull | NoteNotFound | MemoryFileError>
+  readonly remember: (change: Change, place: Place) => Effect.Effect<Note, MemoryFull | NoteNotFound | JsonStore.StoreError>
   /** Removes a note from the scopes that are visible here. Returns the removed note. */
-  readonly forget: (id: string, visible: ReadonlyArray<Scope>, place: Place) => Effect.Effect<Note, NoteNotFound | MemoryFileError>
+  readonly forget: (id: string, visible: ReadonlyArray<Scope>, place: Place) => Effect.Effect<Note, NoteNotFound | JsonStore.StoreError>
   /** Every person, plus this server: what the agent may change from here. */
   readonly allScopes: (place: Place) => Effect.Effect<ReadonlyArray<Scope>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Memory") {}
-
-const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(StoredFile))
-const encodeFile = Schema.encodeEffect(Schema.fromJsonString(StoredFile))
 
 const isDirect = (place: Place) => Option.isNone(place.guildId)
 
@@ -96,26 +89,12 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const settings = yield* Settings.Service
-    const fs = yield* FileSystem.FileSystem
-    const file = path.join(settings.dataDirectory, "memory.json")
-    const fileError = (cause: unknown) => new MemoryFileError({ path: file, cause })
-
-    const initial = yield* Effect.gen(function* () {
-      if (!(yield* fs.exists(file))) return { people: {}, servers: {} } satisfies StoredFile
-
-      return yield* fs.readFileString(file).pipe(Effect.flatMap(decodeFile))
-    }).pipe(Effect.mapError(fileError))
-
-    const state = yield* Ref.make<StoredFile>(initial)
+    const store = yield* JsonStore.make(StoredFile, path.join(settings.dataDirectory, "memory.json"), { people: {}, servers: {} })
+    const initial = yield* store.get
+    const known = Object.values(initial.people).concat(Object.values(initial.servers)).flat()
+    const ids = yield* Ref.make(HashMap.fromIterable(known.map((note) => [note.id, true] as const)))
+    // One change at a time: each checks the limits against the notes as they are.
     const writes = yield* Semaphore.make(1)
-    const ids = yield* Ref.make(HashMap.empty<string, true>())
-
-    const persist = Effect.gen(function* () {
-      const json = yield* encodeFile(yield* Ref.get(state))
-
-      yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-      yield* fs.writeFileString(file, `${json}\n`)
-    }).pipe(Effect.mapError(fileError))
 
     const newId = Effect.gen(function* () {
       for (;;) {
@@ -132,13 +111,13 @@ export const layer = Layer.effect(
     const recall = Effect.fn("Memory.recall")(function* (scope: Scope, place: Place) {
       const now = yield* Clock.currentTimeMillis
 
-      return notesOf(yield* Ref.get(state), scope).filter((note) => visibleIn(note, place, now))
+      return notesOf(yield* store.get, scope).filter((note) => visibleIn(note, place, now))
     })
 
     const remember = Effect.fn("Memory.remember")(
       function* (change: Change, place: Place) {
         const now = yield* Clock.currentTimeMillis
-        const current = yield* Ref.get(state)
+        const current = yield* store.get
         const live = notesOf(current, change.scope).filter((note) => note.expiresAt === undefined || note.expiresAt > now)
 
         const replaced = Option.map(change.replaces, (id) => live.find((note) => note.id === id && visibleIn(note, place, now)))
@@ -175,8 +154,7 @@ export const layer = Layer.effect(
           })
         }
 
-        yield* Ref.set(state, withNotes(current, change.scope, next))
-        yield* persist
+        yield* store.update((latest) => withNotes(latest, change.scope, next))
 
         return note
       },
@@ -186,15 +164,14 @@ export const layer = Layer.effect(
     const forget = Effect.fn("Memory.forget")(
       function* (id: string, visible: ReadonlyArray<Scope>, place: Place) {
         const now = yield* Clock.currentTimeMillis
-        const current = yield* Ref.get(state)
+        const current = yield* store.get
 
         for (const scope of visible) {
           const notes = notesOf(current, scope)
           const found = notes.find((note) => note.id === id && visibleIn(note, place, now))
 
           if (found !== undefined) {
-            yield* Ref.set(state, withNotes(current, scope, notes.filter((note) => note.id !== id)))
-            yield* persist
+            yield* store.update((latest) => withNotes(latest, scope, notes.filter((note) => note.id !== id)))
 
             return found
           }
@@ -206,17 +183,13 @@ export const layer = Layer.effect(
     )
 
     const allScopes = Effect.fn("Memory.allScopes")(function* (place: Place) {
-      const current = yield* Ref.get(state)
+      const current = yield* store.get
 
       return [
         ...Object.keys(current.people).map((userId): Scope => ({ about: "person", userId: UserId.make(userId) })),
         ...Option.toArray(place.guildId).map((guildId): Scope => ({ about: "server", guildId })),
       ]
     })
-
-    const known = Object.values(initial.people).concat(Object.values(initial.servers)).flat()
-
-    yield* Ref.set(ids, HashMap.fromIterable(known.map((note) => [note.id, true] as const)))
 
     return Service.of({ recall, remember, forget, allScopes })
   }),

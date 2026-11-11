@@ -1,8 +1,9 @@
 import { type AbsolutePath, Model } from "@opencode/client/effect"
-import { Cache, Context, Duration, Effect, FileSystem, Layer, Option, Ref, Schema, Semaphore } from "effect"
+import { Cache, Context, Duration, Effect, Layer, Option, Schema } from "effect"
 import path from "node:path"
 import { Fleet } from "./Fleet.ts"
 import { ChannelId, ServerName } from "../shared/Ids.ts"
+import { JsonStore } from "../shared/JsonStore.ts"
 import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 
@@ -19,19 +20,12 @@ const StoredFile = Schema.Struct({
   conversations: Schema.Record(Schema.String, Override).check(Schema.isPropertyNames(ChannelId)),
 })
 
-interface StoredFile extends Schema.Schema.Type<typeof StoredFile> {}
-
 /** A model that the server offers: `id` is "provider/model" with an optional "#variant". */
 export interface Resolved {
   readonly ref: Model.Ref
   readonly id: string
   readonly name: string
 }
-
-export class ModelsFileError extends Schema.TaggedError<ModelsFileError>()("Models.ModelsFileError", {
-  path: Schema.String,
-  cause: Schema.Defect(),
-}) {}
 
 export class CatalogError extends Schema.TaggedError<CatalogError>()("Models.CatalogError", {
   server: Schema.String,
@@ -75,8 +69,8 @@ export interface Interface {
   ) => Effect.Effect<Option.Option<Model.Ref>, NoAllowedModel | UnknownModel>
   /** The stored default, then `servers.<name>.model` in wendell.json, without blocked providers. */
   readonly defaultFor: (remote: Fleet.Remote) => Effect.Effect<Option.Option<string>>
-  readonly setDefault: (remote: Fleet.Remote, model: string) => Effect.Effect<void, ModelsFileError>
-  readonly setConversation: (remote: Fleet.Remote, channelId: ChannelId, model: string) => Effect.Effect<void, ModelsFileError>
+  readonly setDefault: (remote: Fleet.Remote, model: string) => Effect.Effect<void, JsonStore.StoreError>
+  readonly setConversation: (remote: Fleet.Remote, channelId: ChannelId, model: string) => Effect.Effect<void, JsonStore.StoreError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Models") {}
@@ -127,33 +121,16 @@ const closest = (models: ReadonlyArray<Model.Info>, query: string) =>
     .slice(0, SUGGESTIONS)
     .map(({ model }) => key(model))
 
-const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(StoredFile))
-const encodeFile = Schema.encodeEffect(Schema.fromJsonString(StoredFile))
-
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const settings = yield* Settings.Service
     const fleet = yield* Fleet.Service
-    const fs = yield* FileSystem.FileSystem
-    const file = path.join(settings.dataDirectory, "models.json")
-    const fileError = (cause: unknown) => new ModelsFileError({ path: file, cause })
 
-    const initial = yield* Effect.gen(function* () {
-      if (!(yield* fs.exists(file))) return { defaults: {}, conversations: {} }
-
-      return yield* fs.readFileString(file).pipe(Effect.flatMap(decodeFile))
-    }).pipe(Effect.mapError(fileError))
-
-    const state = yield* Ref.make<StoredFile>(initial)
-    const writes = yield* Semaphore.make(1)
-
-    const persist = Effect.gen(function* () {
-      const json = yield* encodeFile(yield* Ref.get(state))
-
-      yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-      yield* fs.writeFileString(file, `${json}\n`)
-    }).pipe(Effect.mapError(fileError), Semaphore.withPermits(writes, 1))
+    const store = yield* JsonStore.make(StoredFile, path.join(settings.dataDirectory, "models.json"), {
+      defaults: {},
+      conversations: {},
+    })
 
     const caches = new Map<ServerName, Cache.Cache<AbsolutePath, ReadonlyArray<Model.Info>, CatalogError>>()
 
@@ -247,11 +224,11 @@ export const layer = Layer.effect(
       )
 
     const defaultFor = Effect.fn("Models.defaultFor")(function* (remote: Fleet.Remote) {
-      return allowed(remote, [(yield* Ref.get(state)).defaults[remote.name], remote.prefs.model])
+      return allowed(remote, [(yield* store.get).defaults[remote.name], remote.prefs.model])
     })
 
     const chosen = Effect.fn("Models.chosen")(function* (remote: Fleet.Remote, channelId: ChannelId) {
-      const current = yield* Ref.get(state)
+      const current = yield* store.get
       const own = current.conversations[channelId]
 
       return allowed(remote, [
@@ -279,8 +256,7 @@ export const layer = Layer.effect(
     })
 
     const setDefault = Effect.fn("Models.setDefault")(function* (remote: Fleet.Remote, model: string) {
-      yield* Ref.update(state, (current) => ({ ...current, defaults: { ...current.defaults, [remote.name]: model } }))
-      yield* persist
+      yield* store.update((current) => ({ ...current, defaults: { ...current.defaults, [remote.name]: model } }))
     })
 
     const setConversation = Effect.fn("Models.setConversation")(function* (
@@ -288,11 +264,10 @@ export const layer = Layer.effect(
       channelId: ChannelId,
       model: string,
     ) {
-      yield* Ref.update(state, (current) => ({
+      yield* store.update((current) => ({
         ...current,
         conversations: { ...current.conversations, [channelId]: { server: remote.name, model } },
       }))
-      yield* persist
     })
 
     return Service.of({ catalog, resolve, search, chosen, pick, defaultFor, setDefault, setConversation })

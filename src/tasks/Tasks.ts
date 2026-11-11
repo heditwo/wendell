@@ -1,7 +1,8 @@
-import { Clock, Context, Effect, FileSystem, Layer, Option, Ref, Schema, Semaphore } from "effect"
+import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
 import path from "node:path"
 import { ChannelId, GuildId, ServerName, UserId } from "../shared/Ids.ts"
 import { Settings } from "../config/Settings.ts"
+import { JsonStore } from "../shared/JsonStore.ts"
 
 export const Task = Schema.Struct({
   threadId: ChannelId,
@@ -29,18 +30,11 @@ const StoredFile = Schema.Struct({
   tasks: Schema.Record(Schema.String, Task),
 })
 
-interface StoredFile extends Schema.Schema.Type<typeof StoredFile> {}
-
-export class TasksFileError extends Schema.TaggedError<TasksFileError>()("Tasks.TasksFileError", {
-  path: Schema.String,
-  cause: Schema.Defect(),
-}) {}
-
 export interface Interface {
   readonly get: (threadId: ChannelId) => Effect.Effect<Option.Option<Task>>
-  readonly create: (task: Task) => Effect.Effect<void, TasksFileError>
-  readonly update: (threadId: ChannelId, change: Change) => Effect.Effect<Option.Option<Task>, TasksFileError>
-  readonly touch: (threadId: ChannelId) => Effect.Effect<void, TasksFileError>
+  readonly create: (task: Task) => Effect.Effect<void, JsonStore.StoreError>
+  readonly update: (threadId: ChannelId, change: Change) => Effect.Effect<Option.Option<Task>, JsonStore.StoreError>
+  readonly touch: (threadId: ChannelId) => Effect.Effect<void, JsonStore.StoreError>
   readonly recent: (guildId: Option.Option<GuildId>, limit: number) => Effect.Effect<ReadonlyArray<Task>>
   readonly slugs: (server: ServerName) => Effect.Effect<ReadonlySet<string>>
   readonly subtasks: (parentTaskId: ChannelId) => Effect.Effect<ReadonlyArray<Task>>
@@ -55,9 +49,6 @@ export interface Change {
 const unchanged: Change = { summary: Option.none(), status: Option.none() }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Tasks") {}
-
-const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(StoredFile))
-const encodeFile = Schema.encodeEffect(Schema.fromJsonString(StoredFile))
 
 /** "Build a Todo App!" → "build-a-todo-app", unique among `taken`. */
 export const slugify = (title: string, taken: ReadonlySet<string>) => {
@@ -83,39 +74,23 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const settings = yield* Settings.Service
-    const fs = yield* FileSystem.FileSystem
-    const file = path.join(settings.dataDirectory, "tasks.json")
-    const fileError = (cause: unknown) => new TasksFileError({ path: file, cause })
-
-    const initial = yield* Effect.gen(function* () {
-      if (!(yield* fs.exists(file))) return { tasks: {} }
-
-      return yield* fs.readFileString(file).pipe(Effect.flatMap(decodeFile))
-    }).pipe(Effect.mapError(fileError))
-
-    const state = yield* Ref.make<StoredFile>(initial)
-    const writes = yield* Semaphore.make(1)
-
-    const persist = Effect.gen(function* () {
-      const json = yield* encodeFile(yield* Ref.get(state))
-
-      yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-      yield* fs.writeFileString(file, `${json}\n`)
-    }).pipe(Effect.mapError(fileError), Semaphore.withPermits(writes, 1))
+    const store = yield* JsonStore.make(StoredFile, path.join(settings.dataDirectory, "tasks.json"), { tasks: {} })
 
     const get = Effect.fn("Tasks.get")(function* (threadId: ChannelId) {
-      return Option.fromNullishOr((yield* Ref.get(state)).tasks[threadId])
+      return Option.fromNullishOr((yield* store.get).tasks[threadId])
     })
 
     const create = Effect.fn("Tasks.create")(function* (task: Task) {
-      yield* Ref.update(state, (current) => ({ tasks: { ...current.tasks, [task.threadId]: task } }))
-      yield* persist
+      yield* store.update((current) => ({ tasks: { ...current.tasks, [task.threadId]: task } }))
     })
 
     const update = Effect.fn("Tasks.update")(function* (threadId: ChannelId, change: Change) {
       const now = yield* Clock.currentTimeMillis
 
-      const updated = yield* Ref.modify(state, (current) => {
+      // Most conversations are not tasks; do not rewrite the file for them.
+      if (Option.isNone(yield* get(threadId))) return Option.none<Task>()
+
+      return yield* store.modify((current) => {
         const task = current.tasks[threadId]
 
         if (task === undefined) return [Option.none<Task>(), current]
@@ -129,10 +104,6 @@ export const layer = Layer.effect(
 
         return [Option.some(next), { tasks: { ...current.tasks, [threadId]: next } }]
       })
-
-      if (Option.isSome(updated)) yield* persist
-
-      return updated
     })
 
     const touch = Effect.fn("Tasks.touch")(function* (threadId: ChannelId) {
@@ -140,7 +111,7 @@ export const layer = Layer.effect(
     })
 
     const recent = Effect.fn("Tasks.recent")(function* (guildId: Option.Option<GuildId>, limit: number) {
-      const all = Object.values((yield* Ref.get(state)).tasks)
+      const all = Object.values((yield* store.get).tasks)
       const wanted = Option.getOrUndefined(guildId)
 
       return all
@@ -150,18 +121,18 @@ export const layer = Layer.effect(
     })
 
     const slugs = Effect.fn("Tasks.slugs")(function* (server: ServerName) {
-      const all = Object.values((yield* Ref.get(state)).tasks)
+      const all = Object.values((yield* store.get).tasks)
 
       return new Set(all.flatMap((task) => (task.server === server ? [task.slug] : [])))
     })
 
     const subtasks = Effect.fn("Tasks.subtasks")(function* (parentTaskId: ChannelId) {
-      return Object.values((yield* Ref.get(state)).tasks)
+      return Object.values((yield* store.get).tasks)
         .filter((task) => task.parentTaskId === parentTaskId)
         .toSorted((left, right) => left.createdAt - right.createdAt)
     })
 
-    const all = Ref.get(state).pipe(Effect.map((current) => Object.values(current.tasks)))
+    const all = store.get.pipe(Effect.map((current) => Object.values(current.tasks)))
 
     return Service.of({ get, create, update, touch, recent, slugs, subtasks, all })
   }),

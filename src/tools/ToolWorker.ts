@@ -417,7 +417,7 @@ export const layer = Layer.effectDiscard(
           Effect.catchTags({
             "Memory.MemoryFull": (error) => fail(error.message),
             "Memory.NoteNotFound": (error) => fail(`No note ${error.id} here to replace.`),
-            "Memory.MemoryFileError": () => fail("Could not save your memory."),
+            "JsonStore.StoreError": () => fail("Could not save your memory."),
           }),
         )
 
@@ -583,7 +583,7 @@ export const layer = Layer.effectDiscard(
             const note = yield* memory.forget(id, scopes, place).pipe(
               Effect.catchTags({
                 "Memory.NoteNotFound": () => fail(`No note ${id} here. Use an ID from the <memory> blocks.`),
-                "Memory.MemoryFileError": () => fail("Could not save your memory."),
+                "JsonStore.StoreError": () => fail("Could not save your memory."),
               }),
             )
 
