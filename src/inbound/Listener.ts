@@ -95,6 +95,8 @@ export const layer = Layer.effectDiscard(
 
       if (latest === undefined) return
 
+      const [first = latest] = batch
+
       const conversation = latest.place.conversation
 
       const routed = yield* Effect.forEach(batch, (item) =>
@@ -139,7 +141,7 @@ export const layer = Layer.effectDiscard(
 
       yield* conversations.deliver(
         conversation,
-        [...recalled, Inbound.renderBatch(routed)].join("\n\n"),
+        [...recalled.blocks, Inbound.renderBatch(routed)].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
@@ -151,7 +153,8 @@ export const layer = Layer.effectDiscard(
         },
         routed.flatMap(({ files }) => Attachments.images(files)),
       )
-      yield* capture.touch(conversation)
+      yield* recalled.delivered
+      yield* capture.touch(conversation, first.message.id)
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,
         kind: conversation.kind,

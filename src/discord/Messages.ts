@@ -35,6 +35,7 @@ export const make = (me: UserId) =>
             authorId: UserId.make(message.author.id),
             authorName: displayName(message.author),
             isMe: message.author.id === me,
+            isBot: message.author.id !== me && (message.author.bot === true || message.webhook_id !== undefined),
             content: [message.content, ...message.attachments.map((attachment) => `[attachment: ${attachment.filename}]`)]
               .filter((part) => part.trim() !== "")
               .join(" "),

@@ -4,6 +4,8 @@ import { Memory } from "../../memory/Memory.ts"
 import type { ChannelId } from "../../shared/Ids.ts"
 import { ToolCalls } from "../ToolCalls.ts"
 
+const PRESENT_MESSAGES = 50
+
 /** `wendell_remember` and `wendell_forget`. */
 export const make = Effect.gen(function* () {
   const discord = yield* Discord.Service
@@ -57,31 +59,42 @@ export const make = Effect.gen(function* () {
 
   const forget = Effect.fn("MemoryTools.forget")(function* ({ channelId }: ToolCalls.Target, input: ToolCalls.CallOf<"Forget">) {
     const place = yield* placeOf(channelId)
-    const scopes = yield* memory.allScopes(place)
+
+    if (Option.isNone(input.id) && Option.isNone(input.match)) {
+      return yield* ToolCalls.fail("Give the note's id, or words from it in match.")
+    }
+
+    // An id or words may only reach notes about people in this conversation, so a wrong id cannot remove a note about someone who is not here.
+    const lines = yield* discord
+      .transcript(channelId, Option.none(), PRESENT_MESSAGES)
+      .pipe(Effect.mapError(ToolCalls.failure("Could not read this channel.")))
+
+    const scopes = Memory.presentScopes(
+      place,
+      lines.filter((line) => !line.isMe && !line.isBot).map((line) => line.authorId),
+    )
 
     const id = yield* Option.match(input.id, {
       onSome: Effect.succeed,
       onNone: () =>
         Effect.gen(function* () {
-          if (Option.isNone(input.match)) return yield* ToolCalls.fail("Give the note's id, or words from it in match.")
-
-          const wanted = input.match.value.toLowerCase()
+          const words = Option.getOrElse(input.match, () => "")
           const notes = (yield* Effect.forEach(scopes, (scope) => memory.recall(scope, place))).flat()
-          const found = notes.filter((note) => note.text.toLowerCase().includes(wanted))
+          const found = Memory.matching(notes, words)
 
           if (found.length === 1 && found[0] !== undefined) return found[0].id
 
           return yield* ToolCalls.fail(
             found.length === 0
               ? "No note matches those words."
-              : `Several notes match: ${found.map((note) => `[${note.id}] ${note.text}`).join("; ")}. Use the id.`,
+              : `${found.length} notes match those words. Use more specific words, or the note's id from a <recall> block.`,
           )
         }),
     })
 
     const note = yield* memory.forget(id, scopes, place).pipe(
       Effect.catchTags({
-        "Memory.NoteNotFound": () => ToolCalls.fail(`No note ${id} here.`),
+        "Memory.NoteNotFound": () => ToolCalls.fail("There is no such note about the people in this conversation or about this server."),
         "JsonStore.StoreError": () => ToolCalls.fail("Could not save your memory."),
       }),
     )

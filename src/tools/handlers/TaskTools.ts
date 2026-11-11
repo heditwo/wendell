@@ -127,24 +127,25 @@ export const make = Effect.gen(function* () {
 
     yield* tasks.create(task).pipe(Effect.mapError(saveFailure))
     yield* activity.spoke(channelId)
+
+    // A new task session has seen no notes yet: the brief decides which facts are relevant.
+    const recalled = yield* recollection.before({
+      conversationKey: `${remote.name}/${threadId}`,
+      remote,
+      place: { guildId: message.guildId, channelId: threadId },
+      people: [{ userId: message.authorId, name: message.authorName }],
+      text: `${message.authorName}: ${Inbound.plainText(message)}\nTask brief: ${brief}`,
+    })
+
     yield* conversations
       .deliver(
         places.forTask(task),
-        [
-          // A new task session has seen no notes yet: the brief decides which facts are relevant.
-          ...(yield* recollection.before({
-            conversationKey: `${remote.name}/${threadId}`,
-            remote,
-            place: { guildId: message.guildId, channelId: threadId },
-            people: [{ userId: message.authorId, name: message.authorName }],
-            text: `${message.authorName}: ${Inbound.plainText(message)}\nTask brief: ${brief}`,
-          })),
-          yield* handoff(channelId, remote.directory, message, brief, title),
-        ].join("\n\n"),
+        [...recalled.blocks, yield* handoff(channelId, remote.directory, message, brief, title)].join("\n\n"),
         { expectReply: true, progress: true, trigger: Option.some({ channelId, messageId: message.id }) },
         Attachments.images(Attachments.plan(remote.directory, message)),
       )
       .pipe(Effect.mapError(ToolCalls.failure("The thread exists, but the task could not start.")))
+    yield* recalled.delivered
     yield* Effect.logInfo("Started task", { server: remote.name, threadId, slug })
 
     return `Started the task in <#${threadId}>. The work continues there. Do not reply in this channel.`

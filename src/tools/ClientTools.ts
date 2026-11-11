@@ -115,9 +115,13 @@ const RememberArgs = Schema.Struct({
 })
 
 const ForgetArgs = Schema.Struct({
-  id: Schema.optional(Schema.NonEmptyString).annotate({ description: "ID of the note to remove, from a <recall> block, for example m_1a2b3c." }),
+  id: Schema.optional(Schema.NonEmptyString).annotate({
+    description:
+      "ID of the note to remove, from a <recall> block, for example m_1a2b3c. It works only for notes about people who wrote in the last 50 messages here, and notes about this server.",
+  }),
   match: Schema.optional(Schema.NonEmptyString).annotate({
-    description: "Words from the note, when you do not have its ID. They must match exactly one note.",
+    description:
+      "Words from the note, when you do not have its ID. It searches only notes about people who wrote in the last 50 messages here, and notes about this server. The words must match exactly one note.",
   }),
 })
 

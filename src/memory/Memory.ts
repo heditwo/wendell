@@ -19,7 +19,8 @@ export type Kind = typeof Kind.Type
 
 export const Note = Schema.Struct({
   id: Schema.String,
-  kind: Kind,
+  // Notes written before kinds existed have no `kind` and are facts.
+  kind: Kind.pipe(Schema.withDecodingDefaultKey(Effect.succeed("fact"))),
   text: Schema.String,
   /** Learned in a DM: recalled only in DMs with that person. */
   private: Schema.Boolean,
@@ -74,8 +75,6 @@ export interface Interface {
   readonly remember: (change: Change, place: Place) => Effect.Effect<Note, MemoryFull | NoteNotFound | JsonStore.StoreError>
   /** Removes a note from the scopes that are visible here. Returns the removed note. */
   readonly forget: (id: string, visible: ReadonlyArray<Scope>, place: Place) => Effect.Effect<Note, NoteNotFound | JsonStore.StoreError>
-  /** Every person, plus this server: what the agent may change from here. */
-  readonly allScopes: (place: Place) => Effect.Effect<ReadonlyArray<Scope>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Memory") {}
@@ -85,6 +84,18 @@ const isDirect = (place: Place) => Option.isNone(place.guildId)
 /** DM notes stay in DMs, so nothing said in private reaches a server. */
 export const visibleIn = (note: Note, place: Place, now: number) =>
   (note.expiresAt === undefined || note.expiresAt > now) && (!note.private || isDirect(place))
+
+/** The people who are in a conversation, plus this server: the only notes that the agent may remove. */
+export const presentScopes = (place: Place, authors: ReadonlyArray<UserId>): ReadonlyArray<Scope> => [
+  ...[...new Set(authors)].map((userId): Scope => ({ about: "person", userId })),
+  ...Option.toArray(place.guildId).map((guildId): Scope => ({ about: "server", guildId })),
+]
+
+export const matching = (notes: ReadonlyArray<Note>, words: string) => {
+  const wanted = words.toLowerCase()
+
+  return notes.filter((note) => note.text.toLowerCase().includes(wanted))
+}
 
 const notesOf = (file: StoredFile, scope: Scope) =>
   scope.about === "person" ? (file.people[scope.userId] ?? []) : (file.servers[scope.guildId] ?? [])
@@ -194,16 +205,7 @@ export const layer = Layer.effect(
       (effect) => Semaphore.withPermits(writes, 1)(effect),
     )
 
-    const allScopes = Effect.fn("Memory.allScopes")(function* (place: Place) {
-      const current = yield* store.get
-
-      return [
-        ...Object.keys(current.people).map((userId): Scope => ({ about: "person", userId: UserId.make(userId) })),
-        ...Option.toArray(place.guildId).map((guildId): Scope => ({ about: "server", guildId })),
-      ]
-    })
-
-    return Service.of({ recall, remember, forget, allScopes })
+    return Service.of({ recall, remember, forget })
   }),
 )
 

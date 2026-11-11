@@ -13,6 +13,7 @@ export interface Interface {
   readonly engageAbove: number
   readonly interruptAfter: Duration.Duration
   readonly captureAfter: Duration.Duration
+  readonly captureMaxWait: Duration.Duration
   readonly batchWindow: Duration.Duration
   readonly followWindow: Duration.Duration
   /** People's time zone for reminders, unless they name another one. */
@@ -54,6 +55,7 @@ export const config = Config.all({
   engageAbove: Config.Number("WENDELL_ENGAGE_ABOVE").pipe(Config.withDefault(0.8)),
   interruptAfter: Config.Duration("WENDELL_INTERRUPT_AFTER").pipe(Config.withDefault(Duration.seconds(15))),
   captureAfter: Config.Duration("WENDELL_CAPTURE_AFTER").pipe(Config.withDefault(Duration.minutes(10))),
+  captureMaxWait: Config.Duration("WENDELL_CAPTURE_MAX_WAIT").pipe(Config.withDefault(Duration.hours(1))),
   batchWindow: Config.Duration("WENDELL_BATCH_WINDOW").pipe(Config.withDefault(Duration.seconds(3))),
   followWindow: Config.Duration("WENDELL_FOLLOW_WINDOW").pipe(Config.withDefault(Duration.minutes(10))),
   timeZone: Config.String("WENDELL_TIME_ZONE").pipe(Config.withDefault(localTimeZone)),

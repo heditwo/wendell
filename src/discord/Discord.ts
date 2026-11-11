@@ -25,6 +25,8 @@ export interface TranscriptLine {
   readonly authorId: UserId
   readonly authorName: string
   readonly isMe: boolean
+  /** Another bot or a webhook, not Wendell. */
+  readonly isBot: boolean
   readonly content: string
 }
 
