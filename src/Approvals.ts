@@ -94,9 +94,11 @@ export const layer = Layer.effectDiscard(
 
             const { sessionID, id, action, resources } = event.data
 
-            if (Option.isNone(SessionKey.channelOf(sessionID))) return
+            const root = yield* conversations.rootOf(remote, sessionID)
 
-            const conversation = yield* conversations.forSession(remote.name, sessionID)
+            if (Option.isNone(root)) return
+
+            const conversation = yield* conversations.forSession(remote.name, root.value)
 
             if (Option.isNone(conversation) || conversation.value.tier !== "trusted") {
               return yield* reject(remote, sessionID, id, action)

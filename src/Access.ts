@@ -11,10 +11,12 @@ export interface Member {
 
 export interface Interface {
   /**
-   * Trusted people get full power in task threads and can approve tool requests.
+   * Trusted people get full power and can approve tool requests.
    * Everyone else gets Wendell's read-only rules.
    */
   readonly trusted: (member: Member) => Effect.Effect<boolean>
+  /** Everyone in this server (or, without one, everyone who can DM Wendell) is trusted. */
+  readonly everyoneTrusted: (guildId: Option.Option<GuildId>) => boolean
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Access") {}
@@ -40,7 +42,7 @@ export const layer = Layer.effect(
     const trusted = Effect.fn("Access.trusted")(function* (member: Member) {
       if (config.owners.includes(member.userId)) return true
 
-      if (Option.isNone(member.guildId)) return false
+      if (Option.isNone(member.guildId)) return config.defaultAccess === "everyone"
 
       const guildId = member.guildId.value
 
@@ -51,7 +53,13 @@ export const layer = Layer.effect(
       )
     })
 
-    return Service.of({ trusted })
+    const everyoneTrusted = (guildId: Option.Option<GuildId>) =>
+      Option.match(guildId, {
+        onNone: () => config.defaultAccess === "everyone",
+        onSome: (id) => config.accessFor(id) === "everyone",
+      })
+
+    return Service.of({ trusted, everyoneTrusted })
   }),
 )
 

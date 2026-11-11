@@ -120,7 +120,8 @@ export const layer = Layer.effect(
           guildId: message.guildId,
           remote,
           directory: remote.directory,
-          tier: "guest",
+          // A channel session is shared by everyone in it, so it is only trusted when everyone is.
+          tier: access.everyoneTrusted(message.guildId) ? "trusted" : "guest",
           title: `Discord channel ${message.channelId}`,
         },
         goal: pick((channel) => channel.goal),

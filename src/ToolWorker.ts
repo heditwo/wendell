@@ -36,11 +36,17 @@ export const layer = Layer.effectDiscard(
     const access = yield* Access.Service
     const recent = yield* Recent.Service
 
-    const channelOf = (sessionID: string) =>
-      Option.match(SessionKey.channelOf(sessionID), {
-        onNone: () => fail("This session is not a Wendell conversation."),
-        onSome: (channelId) => Effect.succeed(channelId),
-      })
+    // Subagents' tool calls belong to the conversation at the top of their session tree.
+    const channelOf = (remote: Fleet.Remote, sessionID: string) =>
+      conversations.rootOf(remote, sessionID).pipe(
+        Effect.map(Option.flatMap(SessionKey.channelOf)),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => fail("This session is not a Wendell conversation."),
+            onSome: (channelId) => Effect.succeed(channelId),
+          }),
+        ),
+      )
 
     const remoteOf = (request: ToolCalls.Request) =>
       Option.match(fleet.byName(request.server), {
@@ -85,7 +91,7 @@ export const layer = Layer.effectDiscard(
     })
 
     const handle = Effect.fn("ToolWorker.handle")(function* (request: ToolCalls.Request) {
-      const channelId = yield* channelOf(request.sessionID)
+      const channelId = yield* channelOf(yield* remoteOf(request), request.sessionID)
 
       return yield* ToolCalls.Call.$match(request.call, {
         Reply: ({ text, replyTo }) =>

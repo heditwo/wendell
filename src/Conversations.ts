@@ -32,6 +32,7 @@ const TYPING_EVERY = Duration.seconds(8)
 const STATUS_EDIT_EVERY = 1_500
 const RECENT_TASKS = 15
 const WATCHING = "👀"
+const MAX_SESSION_DEPTH = 8
 
 export type Kind = "channel" | "task" | "dm"
 
@@ -66,6 +67,8 @@ export interface Interface {
   readonly deliver: (conversation: Conversation, text: string, turn: Turn) => Effect.Effect<void, ConversationError>
   /** The conversation behind one of Wendell's sessions, if it was prepared by this process. */
   readonly forSession: (server: string, sessionID: string) => Effect.Effect<Option.Option<Conversation>>
+  /** Wendell's session at the top of a subagent tree, or none when the session is not Wendell's. */
+  readonly rootOf: (remote: Fleet.Remote, sessionID: string) => Effect.Effect<Option.Option<string>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Conversations") {}
@@ -105,6 +108,32 @@ export const layer = Layer.effect(
     const persona = yield* fs.readFileString(settings.personaFile).pipe(Effect.orDie)
     const prepared = yield* Ref.make(HashMap.empty<string, Conversation>())
     const contexts = yield* Ref.make(HashMap.empty<string, string>())
+    const roots = yield* Ref.make(HashMap.empty<string, Option.Option<string>>())
+
+    const rootOf = Effect.fn("Conversations.rootOf")(function* (remote: Fleet.Remote, sessionID: string) {
+      const cacheKey = `${remote.name}/${sessionID}`
+      const cached = HashMap.get(yield* Ref.get(roots), cacheKey)
+
+      if (Option.isSome(cached)) return cached.value
+
+      let current = Option.some(sessionID)
+
+      for (let depth = 0; depth < MAX_SESSION_DEPTH && Option.isSome(current); depth += 1) {
+        if (Option.isSome(SessionKey.channelOf(current.value))) break
+
+        const info = yield* remote.client.session
+          .get({ sessionID: SessionKey.forSessionID(current.value) })
+          .pipe(Effect.option)
+
+        current = Option.flatMap(info, (session) => Option.fromNullishOr(session.parentID))
+      }
+
+      const root = Option.filter(current, (id) => Option.isSome(SessionKey.channelOf(id)))
+
+      yield* Ref.update(roots, HashMap.set(cacheKey, root))
+
+      return root
+    })
 
     const sessionKey = (conversation: Conversation) =>
       `${conversation.remote.name}/${SessionKey.forChannel(conversation.channelId)}`
@@ -139,6 +168,9 @@ export const layer = Layer.effect(
         conversation.kind === "dm"
           ? "This is a private DM. You can work here directly; DMs have no threads."
           : "This is a shared channel. Answer quick questions here. For real work, call start_task to move it into its own thread.",
+        conversation.tier === "trusted"
+          ? "You can use the full setup here: edit files, run commands and use subagents."
+          : "This conversation is read-only: commands, edits and subagents are rejected.",
         "Tasks in this server, most recent first. When someone refers to earlier work, find it here and use continue_task:",
         describeTasks(recent),
       ].join("\n")
@@ -278,11 +310,11 @@ export const layer = Layer.effect(
         yield* Ref.set(typing, Option.some(fiber))
       })
 
-      const onTool = (name: string) =>
+      const onTool = (name: string, helper: boolean) =>
         Effect.gen(function* () {
           if (!turn.progress) return
 
-          const label = Progress.label(name)
+          const label = Progress.label(name).pipe(Option.map((text) => (helper ? `Helper: ${text}` : text)))
 
           if (Option.isNone(label)) return
 
@@ -320,11 +352,17 @@ export const layer = Layer.effect(
                 return
               }
 
-              if (event.type === "server.connected" || event.data.sessionID !== sessionID) return
+              if (event.type === "server.connected" || !(yield* Ref.get(delivered))) return
 
-              if (!(yield* Ref.get(delivered))) return
+              if (event.type === "session.tool.input.started") {
+                if (event.data.sessionID === sessionID) return yield* onTool(event.data.name, false)
 
-              if (event.type === "session.tool.input.started") return yield* onTool(event.data.name)
+                const root = yield* rootOf(conversation.remote, event.data.sessionID)
+
+                return Option.contains(root, sessionID) ? yield* onTool(event.data.name, true) : undefined
+              }
+
+              if (event.data.sessionID !== sessionID) return
 
               if (event.type === "session.execution.failed") yield* Ref.set(failure, Option.some(event.data.error.message))
 
@@ -396,7 +434,7 @@ export const layer = Layer.effect(
       return HashMap.get(yield* Ref.get(prepared), `${server}/${sessionID}`)
     })
 
-    return Service.of({ exists, deliver, forSession })
+    return Service.of({ exists, deliver, forSession, rootOf })
   }),
 )
 

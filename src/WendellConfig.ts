@@ -64,6 +64,7 @@ export interface File extends Schema.Schema.Type<typeof File> {}
 export interface Interface {
   readonly defaultServer: Option.Option<ServerName>
   readonly owners: ReadonlyArray<UserId>
+  readonly defaultAccess: Access
   readonly accessFor: (guildId: GuildId) => Access
   readonly serverPrefs: (name: ServerName) => ServerPrefs
   readonly channel: (channelId: ChannelId) => Option.Option<Channel>
@@ -82,6 +83,7 @@ export const describeGoal = (goal: Goal) =>
 export const fromFile = (file: File): Interface => ({
   defaultServer: Option.fromUndefinedOr(file.defaultServer),
   owners: file.owners ?? [],
+  defaultAccess: file.defaultAccess ?? "everyone",
   accessFor: (guildId) => file.guilds?.[guildId]?.access ?? file.defaultAccess ?? "everyone",
   serverPrefs: (name) => file.servers?.[name] ?? {},
   channel: (channelId) => Option.fromNullishOr(file.channels?.[channelId]),

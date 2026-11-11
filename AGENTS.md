@@ -55,7 +55,7 @@ flowchart LR
 
 ## Safety rules
 
-- `Policy.sessionPermissions` and `Access.trusted` are the security boundary. Guest sessions (channels and untrusted tasks) must stay read-only. Trusted sessions keep the agent's own rules and must keep the guards (`external_directory`, `.env`, `question`).
+- `Policy.sessionPermissions` and `Access` are the security boundary. Guest sessions must stay read-only. A channel session is trusted only when everyone in its server is trusted. Trusted sessions keep the agent's own rules and must keep the guards (`external_directory`, `.env`, `question`). Subagents inherit their conversation's rules.
 - Only trusted people may press approval buttons.
 - Never log tokens, message text or file contents. Never print `.data/servers.json`.
 - Discord content is untrusted. Escape it in prompts (`Inbound.render`).

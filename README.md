@@ -55,16 +55,16 @@ Wendell runs on your machine with your tools, so the access rules matter.
 
 | Who | Where | What the agent can do |
 | --- | --- | --- |
-| Anyone | Channels | Read inside Wendell's directory, search the web, use skills and Code Mode. Everything else is rejected. |
-| Trusted people | Their task threads | Everything the server's agent allows: edits, commands, dev servers, tunnels. Paths outside the project directory and `.env` files need an approval button. |
-| Untrusted people | Their task threads | Read-only, as in channels. |
-| Owners | DMs | As trusted. Other DMs are read-only. |
+| Trusted people | Channels where everyone is trusted, their task threads, their DMs | Everything the server's agent allows: edits, commands, subagents, dev servers, tunnels. Paths outside Wendell's directory and `.env` files need an approval button. |
+| Everyone else | Channels with restricted access, their task threads, their DMs | Read inside Wendell's directory, search the web, use skills and Code Mode. Everything else is rejected. |
+
+A channel session is shared by everyone in the channel, so it gets full power only when everyone in that Discord server is trusted. Subagents inherit the rules of the conversation that started them, and their approval requests appear in that conversation.
 
 Who is trusted:
 
-- By default, **everyone** in every server is trusted. This fits servers where everyone may use your machine.
+- By default, **everyone** is trusted: in every server, and in DMs. This fits servers where everyone may use your machine.
 - Set `defaultAccess`, or `guilds.<server ID>.access`, to `"administrators"` (the server owner and roles with Administrator) or `{ "role": "<role ID>" }`.
-- `owners` are trusted everywhere, including DMs.
+- `owners` are trusted everywhere, including DMs, whatever the access rules say.
 
 Only trusted people can press approval buttons. For trusted sessions, your agent's own permission rules still apply, including your `deny` rules. To let everyone use more tools in channels, add actions to `servers.<name>.allow`. MCP tool actions are `<server>_<tool>`, so `"browse_*"` allows the browse MCP.
 
@@ -115,8 +115,8 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 
 | Field | Meaning |
 | --- | --- |
-| `owners` | Discord user IDs that are trusted everywhere, including DMs. |
-| `defaultAccess` | Who is trusted in servers without their own rule: `"everyone"` (default), `"administrators"` or `{ "role": "<role ID>" }`. |
+| `owners` | Discord user IDs that are trusted everywhere, whatever the access rules say. |
+| `defaultAccess` | Who is trusted in servers without their own rule, and in DMs: `"everyone"` (default), `"administrators"` or `{ "role": "<role ID>" }`. With a restricted default, only owners are trusted in DMs. |
 | `guilds.<server ID>.access` | The same, for one Discord server. |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
 | `servers.<name>.agent` | Agent for Wendell's sessions. Default: the server's default agent. |
