@@ -1,7 +1,7 @@
 import { Clock, Context, Effect, HashMap, Layer, Option, Ref, Schema, Semaphore } from "effect"
 import path from "node:path"
-import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 import { Settings } from "../config/Settings.ts"
+import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 import { JsonStore } from "../shared/JsonStore.ts"
 
 /** A scope holds at most this many notes and characters, like a person's working knowledge of someone. */

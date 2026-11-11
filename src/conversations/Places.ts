@@ -1,13 +1,13 @@
 import { AbsolutePath } from "@opencode/client/effect"
 import { Context, Effect, Layer, Option } from "effect"
 import path from "node:path"
-import type { Conversation } from "./Conversation.ts"
+import { WendellConfig } from "../config/WendellConfig.ts"
 import { Discord } from "../discord/Discord.ts"
+import { Inbound } from "../inbound/Inbound.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
-import { Inbound } from "../inbound/Inbound.ts"
 import { Tasks } from "../tasks/Tasks.ts"
-import { WendellConfig } from "../config/WendellConfig.ts"
+import type { Conversation } from "./Conversation.ts"
 
 export interface Place {
   readonly conversation: Conversation

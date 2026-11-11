@@ -3,12 +3,12 @@ import { type ClientMcpConnection, connectClientMcp } from "@opencode/client/mcp
 import { Context, Effect, HashMap, Layer, Option, Redacted, Ref, Schema, Semaphore } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import path from "node:path"
-import { ClientTools } from "../tools/ClientTools.ts"
-import type { ServerName } from "../shared/Ids.ts"
-import { Policy } from "./Policy.ts"
 import { Servers } from "../config/Servers.ts"
-import { ToolCalls } from "../tools/ToolCalls.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
+import type { ServerName } from "../shared/Ids.ts"
+import { ClientTools } from "../tools/ClientTools.ts"
+import { ToolCalls } from "../tools/ToolCalls.ts"
+import { Policy } from "./Policy.ts"
 
 export interface Remote {
   readonly name: ServerName

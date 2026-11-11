@@ -2,10 +2,10 @@ import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun"
 import { Agent } from "@opencode/client/effect"
 import { Console, Effect, Layer, Option } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import { Fleet } from "../opencode/Fleet.ts"
 import { Servers } from "../config/Servers.ts"
 import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
+import { Fleet } from "../opencode/Fleet.ts"
 
 const check = (label: string, ok: boolean, detail: string) => Console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${detail}`)
 

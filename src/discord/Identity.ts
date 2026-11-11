@@ -2,8 +2,9 @@ import { DiscordREST, Discord as DiscordTypes } from "dfx"
 import { DiscordGateway } from "dfx/gateway"
 import { Effect, Option } from "effect"
 import type { GuildId } from "../shared/Ids.ts"
-import type { Presence, ProfileUpdate } from "./Discord.ts"
+import type { ProfileUpdate } from "./Discord.ts"
 import { discordError } from "./DiscordError.ts"
+import type { Presence } from "./Presence.ts"
 
 const activityTypes = {
   playing: DiscordTypes.ActivityType.Playing,
@@ -48,7 +49,7 @@ export const make = Effect.gen(function* () {
     (effect) => discordError("Discord.updateNickname")(effect),
   )
 
-  const setPresence = Effect.fn("Discord.setPresence")(function* (presence: Presence) {
+  const setPresence = Effect.fn("Discord.setPresence")(function* (presence: Presence.Presence) {
     return yield* gateway.send({
       op: DiscordTypes.GatewayOpcodes.PresenceUpdate,
       d: {

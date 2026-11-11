@@ -1,6 +1,6 @@
 import { Clock, Context, Duration, Effect, HashMap, Layer, Option, Ref } from "effect"
-import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
 import { Inbound } from "../inbound/Inbound.ts"
+import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
 import { attribute, escape, isoDay } from "../shared/Text.ts"
 import { Memory } from "./Memory.ts"
 

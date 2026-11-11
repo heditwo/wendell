@@ -1,5 +1,6 @@
 import { Context, Data, Deferred, Effect, Layer, type Option, Queue, Schema, Stream } from "effect"
 import type { Embeds } from "../discord/Embeds.ts"
+import type { Presence } from "../discord/Presence.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, MessageId, ServerName, UserId } from "../shared/Ids.ts"
 import type { Tasks } from "../tasks/Tasks.ts"
@@ -43,15 +44,8 @@ export interface ProfileChange {
   readonly banner?: string | null | undefined
   readonly about?: string | null | undefined
   readonly nickname?: string | null | undefined
-  readonly status?: PresenceStatus | undefined
-  readonly activity?: Activity | null | undefined
-}
-
-export type PresenceStatus = "online" | "idle" | "dnd" | "invisible"
-
-export interface Activity {
-  readonly type: "playing" | "listening" | "watching" | "competing" | "custom"
-  readonly text: string
+  readonly status?: Presence.Status | undefined
+  readonly activity?: Presence.Activity | null | undefined
 }
 
 export type ModelScope = "conversation" | "default"

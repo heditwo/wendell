@@ -1,11 +1,11 @@
 import { type AbsolutePath, Model } from "@opencode/client/effect"
 import { Cache, Context, Duration, Effect, Layer, Option, Schema } from "effect"
 import path from "node:path"
-import { Fleet } from "./Fleet.ts"
-import { ChannelId, ServerName } from "../shared/Ids.ts"
-import { JsonStore } from "../shared/JsonStore.ts"
 import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
+import { ChannelId, ServerName } from "../shared/Ids.ts"
+import { JsonStore } from "../shared/JsonStore.ts"
+import { Fleet } from "./Fleet.ts"
 
 const CATALOG_TTL = Duration.minutes(5)
 const SUGGESTIONS = 5

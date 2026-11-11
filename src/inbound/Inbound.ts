@@ -1,9 +1,9 @@
 import { Data, Option, Schema } from "effect"
+import { WendellConfig } from "../config/WendellConfig.ts"
 import { Files } from "../shared/Files.ts"
 import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 import { attribute, escape } from "../shared/Text.ts"
 import { Routing } from "./Routing.ts"
-import { WendellConfig } from "../config/WendellConfig.ts"
 
 export const Attachment = Schema.Struct({
   id: Schema.String,

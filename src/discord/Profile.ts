@@ -1,30 +1,26 @@
 import { Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from "effect"
 import path from "node:path"
-import { Discord } from "./Discord.ts"
 import { Settings } from "../config/Settings.ts"
 import { JsonStore } from "../shared/JsonStore.ts"
-
-const Activity = Schema.Struct({
-  type: Schema.Literals(["playing", "listening", "watching", "competing", "custom"]),
-  text: Schema.String,
-})
+import { Discord } from "./Discord.ts"
+import { Presence } from "./Presence.ts"
 
 const StoredFile = Schema.Struct({
-  status: Schema.Literals(["online", "idle", "dnd", "invisible"]),
-  activity: Schema.NullOr(Activity),
+  status: Presence.Status,
+  activity: Schema.NullOr(Schema.Struct({ type: Presence.ActivityType, text: Schema.String })),
 })
 
 interface StoredFile extends Schema.Schema.Type<typeof StoredFile> {}
 
 export interface Interface {
-  readonly presence: Effect.Effect<Discord.Presence>
+  readonly presence: Effect.Effect<Presence.Presence>
   /** Sets the presence now and keeps it: Discord forgets it on every new gateway connection. */
-  readonly setPresence: (presence: Discord.Presence) => Effect.Effect<void, JsonStore.StoreError>
+  readonly setPresence: (presence: Presence.Presence) => Effect.Effect<void, JsonStore.StoreError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Profile") {}
 
-const toPresence = (stored: StoredFile): Discord.Presence => ({
+const toPresence = (stored: StoredFile): Presence.Presence => ({
   status: stored.status,
   activity: Option.fromNullishOr(stored.activity),
 })
@@ -42,7 +38,7 @@ export const layer = Layer.effect(
 
     const presence = store.get.pipe(Effect.map(toPresence))
 
-    const setPresence = Effect.fn("Profile.setPresence")(function* (next: Discord.Presence) {
+    const setPresence = Effect.fn("Profile.setPresence")(function* (next: Presence.Presence) {
       yield* discord.setPresence(next)
       yield* store.update(() => ({ status: next.status, activity: Option.getOrNull(next.activity) }))
     })

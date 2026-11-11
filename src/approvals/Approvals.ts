@@ -1,14 +1,14 @@
 import { AbsolutePath, type Permission } from "@opencode/client/effect"
 import { Duration, Effect, HashMap, HashSet, Layer, Option, Ref, Schedule, Stream } from "effect"
-import { ApprovalModes } from "../modes/ApprovalModes.ts"
 import { Conversations } from "../conversations/Conversations.ts"
 import { Discord } from "../discord/Discord.ts"
+import { ApprovalModes } from "../modes/ApprovalModes.ts"
 import { Fleet } from "../opencode/Fleet.ts"
-import type { ChannelId } from "../shared/Ids.ts"
 import { Policy } from "../opencode/Policy.ts"
-import { Reviewer } from "./Reviewer.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
+import type { ChannelId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
+import { Reviewer } from "./Reviewer.ts"
 
 const PREFIX = "wendell:perm:"
 const GUARD_RESTART = Duration.seconds(5)

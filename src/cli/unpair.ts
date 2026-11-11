@@ -1,8 +1,8 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Console, Effect, Layer, Schema } from "effect"
-import { ServerName } from "../shared/Ids.ts"
 import { Servers } from "../config/Servers.ts"
 import { Settings } from "../config/Settings.ts"
+import { ServerName } from "../shared/Ids.ts"
 
 const program = Effect.gen(function* () {
   const [name] = yield* Schema.decodeUnknownEffect(Schema.Tuple([ServerName]))(Bun.argv.slice(2))

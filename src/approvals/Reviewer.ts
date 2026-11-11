@@ -1,9 +1,9 @@
 import { Context, Duration, Effect, Layer, Option } from "effect"
+import { Settings } from "../config/Settings.ts"
 import { Discord } from "../discord/Discord.ts"
+import { Decisions } from "../opencode/Decisions.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId } from "../shared/Ids.ts"
-import { Settings } from "../config/Settings.ts"
-import { Decisions } from "../opencode/Decisions.ts"
 import { Tasks } from "../tasks/Tasks.ts"
 
 const PRIOR_MESSAGES = 12

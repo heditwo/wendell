@@ -1,9 +1,9 @@
 import { Context, Duration, Effect, Layer, Option } from "effect"
-import { Discord } from "../discord/Discord.ts"
-import type { Fleet } from "../opencode/Fleet.ts"
-import { Decisions } from "../opencode/Decisions.ts"
-import { Inbound } from "./Inbound.ts"
 import { Settings } from "../config/Settings.ts"
+import { Discord } from "../discord/Discord.ts"
+import { Decisions } from "../opencode/Decisions.ts"
+import type { Fleet } from "../opencode/Fleet.ts"
+import { Inbound } from "./Inbound.ts"
 
 const PRIOR_MESSAGES = 10
 const PRIOR_MESSAGE_CHARS = 500

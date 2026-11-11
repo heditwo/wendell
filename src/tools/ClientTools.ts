@@ -1,6 +1,7 @@
 import type { ClientMcpTool, ClientMcpToolResult } from "@opencode/client/mcp"
 import { Effect, Option, Schema } from "effect"
 import { Embeds } from "../discord/Embeds.ts"
+import { Presence } from "../discord/Presence.ts"
 import { ChannelId, MessageId, type ServerName, UserId } from "../shared/Ids.ts"
 import { ToolCalls } from "./ToolCalls.ts"
 
@@ -78,13 +79,13 @@ const SetProfileArgs = Schema.Struct({
   nickname: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32)))).annotate({
     description: "Nickname in this Discord server only, or null to go back to the username. Not available in DMs.",
   }),
-  status: Schema.optional(Schema.Literals(["online", "idle", "dnd", "invisible"])).annotate({
+  status: Schema.optional(Presence.Status).annotate({
     description: 'Online status. "dnd" is Do Not Disturb.',
   }),
   activity: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
-        type: Schema.Literals(["playing", "listening", "watching", "competing", "custom"]),
+        type: Presence.ActivityType,
         text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
       }),
     ),

@@ -10,6 +10,7 @@ import { Identity } from "./Identity.ts"
 import { Interactions } from "./Interactions.ts"
 import { Messages } from "./Messages.ts"
 import { Payloads } from "./Payloads.ts"
+import type { Presence } from "./Presence.ts"
 
 export { DiscordError } from "./DiscordError.ts"
 
@@ -104,14 +105,6 @@ export interface ProfileUpdate {
   banner?: string | null
 }
 
-export interface Presence {
-  readonly status: "online" | "idle" | "dnd" | "invisible"
-  readonly activity: Option.Option<{
-    readonly type: "playing" | "listening" | "watching" | "competing" | "custom"
-    readonly text: string
-  }>
-}
-
 export interface Interface {
   readonly messages: Stream.Stream<Inbound.Message>
   readonly buttonPresses: Stream.Stream<ButtonPress>
@@ -147,7 +140,7 @@ export interface Interface {
   readonly updateAbout: (text: string | null) => Effect.Effect<void, DiscordError>
   readonly updateNickname: (guildId: GuildId, nickname: string | null) => Effect.Effect<void, DiscordError>
   /** False when no gateway connection is open. */
-  readonly setPresence: (presence: Presence) => Effect.Effect<boolean>
+  readonly setPresence: (presence: Presence.Presence) => Effect.Effect<boolean>
   /** Emits after each gateway connection, when the presence must be set again. */
   readonly connected: Stream.Stream<void>
   readonly startThread: (

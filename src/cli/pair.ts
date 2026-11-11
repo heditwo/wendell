@@ -2,11 +2,11 @@ import { BunHttpClient, BunRuntime, BunServices } from "@effect/platform-bun"
 import { OpenCode } from "@opencode/client/effect"
 import { Console, DateTime, Effect, Layer, Option, Redacted, Schema } from "effect"
 import path from "node:path"
-import { Fleet } from "../opencode/Fleet.ts"
-import { ServerName } from "../shared/Ids.ts"
 import { Pairing } from "../config/Pairing.ts"
 import { Servers } from "../config/Servers.ts"
 import { Settings } from "../config/Settings.ts"
+import { Fleet } from "../opencode/Fleet.ts"
+import { ServerName } from "../shared/Ids.ts"
 
 const USAGE = "Usage: bun run pair <name> <pairing link> <directory on the server>"
 

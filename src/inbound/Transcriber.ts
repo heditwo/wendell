@@ -2,10 +2,10 @@ import { Context, Duration, Effect, FileSystem, HashMap, Layer, Option, Ref, Sch
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import path from "node:path"
+import { WendellConfig } from "../config/WendellConfig.ts"
 import { Files } from "../shared/Files.ts"
 import { Attachments } from "./Attachments.ts"
 import type { Inbound } from "./Inbound.ts"
-import { WendellConfig } from "../config/WendellConfig.ts"
 
 const TIMEOUT = Duration.minutes(3)
 const AUDIO_EXTENSIONS = new Set([".ogg", ".oga", ".opus", ".mp3", ".m4a", ".wav", ".webm", ".flac", ".aac"])
