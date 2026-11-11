@@ -24,6 +24,8 @@ export interface Turn {
   readonly progress: boolean
   /** Without `progress`: show them from the first tool call, when Wendell has decided to act. */
   readonly lazyProgress?: boolean | undefined
+  /** Resolves to true when Wendell will likely answer with words: typing then starts as soon as he gets the message. */
+  readonly typeAtOnce?: Effect.Effect<boolean> | undefined
   readonly trigger: Option.Option<{ readonly channelId: ChannelId; readonly messageId: MessageId }>
   /** How to deliver while a turn is running. Default: `wait`, for Wendell's own hand-offs and reports. */
   readonly busy?: WendellConfig.BusyMode | undefined

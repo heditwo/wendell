@@ -109,6 +109,14 @@ export const make = (sessions: Sessions.Interface) =>
         yield* Ref.set(delivered, true)
 
         if (turn.progress) yield* acknowledge
+
+        if (turn.typeAtOnce !== undefined) {
+          const predicted = turn.typeAtOnce
+
+          yield* Effect.gen(function* () {
+            if ((yield* predicted) && !(yield* Ref.get(reacted))) yield* startWorking
+          }).pipe(Effect.forkIn(scope))
+        }
       })
 
       const onCode = (callID: string, input: Progress.CodeModeInput) =>

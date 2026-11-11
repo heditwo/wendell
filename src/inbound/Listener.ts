@@ -123,6 +123,16 @@ export const layer = Layer.effectDiscard(
         people,
       )
 
+      const asked = Option.fromUndefinedOr(waiting.at(-1))
+
+      // Started now and awaited when the turn begins, so the prediction does not delay delivery.
+      const typeAtOnce = yield* Option.match(asked, {
+        onNone: () => Effect.succeed(Effect.succeed(false)),
+        onSome: ({ message }) => Effect.cached(screen.needsWords(conversation.remote, message)),
+      })
+
+      yield* Effect.forkDetach(typeAtOnce)
+
       yield* conversations.deliver(
         conversation,
         [...recalled, Inbound.renderBatch(routed)].join("\n\n"),
@@ -130,6 +140,7 @@ export const layer = Layer.effectDiscard(
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
           lazyProgress: true,
+          typeAtOnce,
           trigger,
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
           busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
