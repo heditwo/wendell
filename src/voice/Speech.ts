@@ -36,6 +36,9 @@ export const readable = (text: string, names: ReadonlyMap<string, string>): Opti
   return /[\p{L}\p{N}]/u.test(spoken) ? Option.some(spoken) : Option.none()
 }
 
+/** Links and code are left out of speech, so a message with them is also posted in the chat. */
+export const hasUnspokenParts = (text: string) => /`|https?:\/\//.test(text)
+
 /** What one person said in a call, after speech recognition. */
 export interface Heard {
   readonly userId: UserId
@@ -47,9 +50,10 @@ export interface Heard {
 
 /** For every batch in a conversation whose voice call Wendell is in, also for typed messages in its chat. */
 export const callNote =
-  "You are in the voice call of this channel. Everyone in the call hears your wendell_reply text: it is spoken aloud " +
-  "and also posted in the call's text chat. Keep replies for the call short and plain, one to three sentences, " +
-  "without markdown, lists, links or code. If people need a link or code, say that it is in the chat."
+  "You are in the voice call of this channel. Everyone in the call hears your wendell_reply text: it is spoken aloud, " +
+  "and it is not posted in the call's text chat unless it has files, embeds, links, code or a mention. " +
+  "Keep replies for the call short and plain, one to three sentences, without markdown or lists. " +
+  "If people need a link or code, put it in the reply and say that it is in the chat."
 
 const render = (heard: Heard) =>
   [

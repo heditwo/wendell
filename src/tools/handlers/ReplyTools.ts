@@ -2,8 +2,9 @@ import { Effect, Option } from "effect"
 import { Activity } from "../../conversations/Activity.ts"
 import { Discord } from "../../discord/Discord.ts"
 import { Embeds } from "../../discord/Embeds.ts"
-import { ToolCalls } from "../ToolCalls.ts"
+import { Speech } from "../../voice/Speech.ts"
 import { Voice } from "../../voice/Voice.ts"
+import { ToolCalls } from "../ToolCalls.ts"
 import { Uploads } from "../Uploads.ts"
 
 export const make = Effect.gen(function* () {
@@ -33,6 +34,14 @@ export const make = Effect.gen(function* () {
       )
     }
 
+    const spoken = yield* voice.speak(channelId, text)
+
+    if (spoken && attached.length === 0 && embeds.length === 0 && Option.isNone(mention) && !Speech.hasUnspokenParts(text)) {
+      yield* activity.spoke(channelId)
+
+      return "Spoken in the voice call. Nothing was posted in the chat."
+    }
+
     const content = Option.match(mention, {
       onNone: () => text,
       onSome: (userId) => (text.includes(`<@${userId}>`) ? text : `<@${userId}> ${text}`),
@@ -50,9 +59,8 @@ export const make = Effect.gen(function* () {
     )
 
     yield* activity.spoke(channelId)
-    yield* voice.speak(channelId, text)
 
-    return `Posted message ${messageId}${attached.length === 0 ? "" : ` with ${attached.map((upload) => upload.name).join(", ")}`}.`
+    return `${spoken ? "Spoken in the voice call and posted" : "Posted"} message ${messageId}${attached.length === 0 ? "" : ` with ${attached.map((upload) => upload.name).join(", ")}`}.`
   })
 
   const react = Effect.fn("ReplyTools.react")(function* (

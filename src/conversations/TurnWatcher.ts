@@ -6,6 +6,7 @@ import type { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
 import type { ChannelId, MessageId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
+import { Speech } from "../voice/Speech.ts"
 import { Voice } from "../voice/Voice.ts"
 import { Activity } from "./Activity.ts"
 import { ContextSize } from "./ContextSize.ts"
@@ -282,9 +283,11 @@ export const make = (sessions: Sessions.Interface) =>
 
       if (Option.isNone(text)) return
 
-      yield* discord.send(channelId, text.value, Option.none())
+      const spoken = yield* voice.speak(channelId, text.value)
+
+      if (!spoken || Speech.hasUnspokenParts(text.value)) yield* discord.send(channelId, text.value, Option.none())
+
       yield* activity.spoke(channelId)
-      yield* voice.speak(channelId, text.value)
       yield* Effect.logInfo("Posted the turn text because Wendell did not call wendell_reply", {
         server: conversation.remote.name,
         channelId,

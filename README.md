@@ -117,7 +117,7 @@ Wendell can join a voice channel in a Discord server. He hears what people say t
 - A Discord voice channel has its own text chat with the same ID. The call and this chat are one conversation. When you ask Wendell to join from another channel, he continues in the voice channel's chat.
 - Each thing that a person says goes to the speech-to-text provider of [Voice messages](#voice-messages). Wendell ignores bots. "Wendell, …" at the start or end addresses him. The decision model examines all other speech, because Wendell takes part in the call and speech recognition often gets his name wrong. Speech of a few seconds goes to the agent in one batch, as for messages.
 - The agent gets the speech marked as speech recognition, with the speaker's name and user ID. Speech has no message ID, so Wendell does not react to it, reply to it or show 👀.
-- When Wendell is in the call, what he posts in the voice channel's chat is also spoken. Wendell removes code blocks, links, markdown and emojis before he speaks, and says names for mentions. When nothing readable remains, he says nothing. The text stays in the chat.
+- When Wendell is in the call, he speaks his replies in the voice channel's conversation instead of posting them. He removes code blocks, links, markdown and emojis before he speaks, and says names for mentions. He also posts the reply in the chat when it has files, embeds, links, code or a mention, or when nothing readable remains.
 - When someone talks while Wendell speaks, he stops speaking.
 - He leaves when you ask (`wendell_leave_voice`), or 30 seconds after the last person leaves the channel.
 - Discord bots cannot join DM calls or group calls.

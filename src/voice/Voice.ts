@@ -51,8 +51,8 @@ export interface Interface {
   readonly channelIn: (guildId: GuildId) => Effect.Effect<Option.Option<ChannelId>>
   /** Wendell is connected to the voice channel with this ID, so what he posts in its chat is also spoken. */
   readonly inCall: (channelId: ChannelId) => Effect.Effect<boolean>
-  /** Speaks the readable part of a message in the call of this channel. Does nothing when Wendell is not in it. */
-  readonly speak: (channelId: ChannelId, text: string) => Effect.Effect<void>
+  /** Speaks the readable part of a message in the call of this channel. False when Wendell is not in it or nothing is readable. */
+  readonly speak: (channelId: ChannelId, text: string) => Effect.Effect<boolean>
   readonly utterances: Stream.Stream<Utterance>
   /** Records a transcribed utterance for `callLines`. */
   readonly heard: (channelId: ChannelId, speaker: string, text: string) => Effect.Effect<void>
@@ -70,7 +70,7 @@ const off: Interface = {
   leave: () => Effect.succeed(false),
   channelIn: () => Effect.succeed(Option.none()),
   inCall: () => Effect.succeed(false),
-  speak: () => Effect.void,
+  speak: () => Effect.succeed(false),
   utterances: Stream.empty,
   heard: () => Effect.void,
   callLines: () => Effect.succeed([]),
@@ -185,7 +185,7 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
   const speak = Effect.fn("Voice.speak")(function* (channelId: ChannelId, text: string) {
     const guildId = yield* connectedGuildOf(channelId)
 
-    if (Option.isNone(guildId)) return
+    if (Option.isNone(guildId)) return false
 
     const names = new Map<string, string>()
 
@@ -201,10 +201,12 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
 
     const spoken = Speech.readable(text, names)
 
-    if (Option.isNone(spoken)) return
+    if (Option.isNone(spoken)) return false
 
     yield* heard(channelId, "Wendell (agent)", spoken.value)
     yield* send({ type: "speak", guildId: guildId.value, id: randomUUID(), text: spoken.value })
+
+    return true
   })
 
   const onMessage = (message: Protocol.Incoming) =>
