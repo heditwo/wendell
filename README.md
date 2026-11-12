@@ -109,12 +109,23 @@ For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lin
 - For structured results, the agent can add `embeds`. An embed image can show an attached file with `attachment://<file name>`.
 - To make an image, the agent uses OpenCode's `image_generate` tool. The server must have an enabled image model, and before OpenCode 2.2.2 also `experimental.image_generate` in its config. Wendell looks for the tool when he connects, and again when the server's config, models or providers change. Without the tool, he tells people that he cannot make images on that server. The tool runs in the background, and the agent posts the image when it is ready.
 
+## DMs and server channels
+
+Each conversation has its own session, so a DM does not contain what you said in a server. To let you refer to it ("Cam just sent his screenshot"), Wendell does this in DMs:
+
+- He records the server channels where each person writes (`.data/places.json`, 7 days, at most 8 channels for each person). He reads all messages in his channels for this, also the ones that are not for him.
+- For each DM batch, he reads the newest messages of the 3 channels where you wrote in the last 6 hours. The decision model judges for each channel whether your DM refers to its messages. The agent gets the messages of at most 2 matching channels with the DM, in a `<from_channel>` block. Their newest 8 files are saved in the DM's directory, and their images go to the model, so the agent can look at your screenshots and edit them. A channel comes again only with messages that the DM has not had yet.
+- The other channels where you wrote in the last day are listed in an `<elsewhere>` block. With `wendell_read_channel`, the agent can read one of them.
+
+This works only in DMs and only for channels where the person in the DM wrote. Server channels never get messages from DMs or from other channels. When the decision model's provider is blocked, Wendell only lists the channels.
+
 ## Voice calls
 
 Wendell can join a voice channel in a Discord server. He hears what people say there and speaks his replies.
 
 - Ask him to join, for example "Wendell, join my call". The agent calls `wendell_join_voice` with your user ID, or with a voice channel ID.
-- A Discord voice channel has its own text chat with the same ID. The call and this chat are one conversation. When you ask Wendell to join from another channel, he continues in the voice channel's chat.
+- A Discord voice channel has its own text chat with the same ID. The call and this chat are one conversation. When you ask Wendell to join from another channel, he continues in the voice channel's chat. The agent can give that conversation a short `brief` about what you talked about.
+- You can also ask from a DM. Wendell then finds your voice channel in the Discord servers that you share with him. When you are in more than one, he asks which one.
 - Each thing that a person says goes to the speech-to-text provider of [Voice messages](#voice-messages). Wendell ignores bots. "Wendell, …" at the start or end addresses him. The decision model examines all other speech, because Wendell takes part in the call and speech recognition often gets his name wrong. Speech of a few seconds goes to the agent in one batch, as for messages.
 - The agent gets the speech marked as speech recognition, with the speaker's name and user ID. Speech has no message ID, so Wendell does not react to it, reply to it or show 👀.
 - When Wendell is in the call, he speaks his replies in the voice channel's conversation instead of posting them. He removes code blocks, links, markdown and emojis before he speaks, and says names for mentions. He also posts the reply in the chat when it has files, embeds, links, code or a mention, or when nothing readable remains.
@@ -220,8 +231,9 @@ The agent can post in Discord only through these tools.
 | `wendell_list_expressions` | List the custom emojis, stickers and soundboard sounds of the Discord server, with IDs and who added them. Field: `kind` (optional). |
 | `wendell_edit_expression` | Change an emoji (`name`), a sticker (`name`, `emoji`, `description`) or a sound (`name`, `emoji`, `volume`). `expression` is the ID or the exact name. |
 | `wendell_remove_expression` | Remove an emoji, a sticker or a sound. `expression` is the ID or the exact name. |
-| `wendell_join_voice` | Join a voice channel of the Discord server: the channel of `user_id`, or `channel_id`. See [Voice calls](#voice-calls). |
-| `wendell_leave_voice` | Leave the voice channel of the Discord server. |
+| `wendell_join_voice` | Join the voice channel of `user_id` (in this server, or in a DM in any shared server), or `channel_id`. Field: `brief` (optional) for the call's conversation. See [Voice calls](#voice-calls). |
+| `wendell_leave_voice` | Leave the voice channel of the Discord server. In a DM, leave the only call. |
+| `wendell_read_channel` | In a DM: read the newest messages (`limit`, default 30) of a server channel where the person wrote in the last 7 days. The newest 8 files are saved in the DM's directory. See [DMs and server channels](#dms-and-server-channels). |
 
 With the Create Expressions permission, Wendell can add emojis, stickers and sounds, and change or remove the ones he added. To change or remove the ones that other people added, give his role the Manage Expressions permission too.
 

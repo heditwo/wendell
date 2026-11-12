@@ -185,10 +185,22 @@ const JoinVoiceArgs = Schema.Struct({
   user_id: Schema.optional(UserId).annotate({
     description: "Join the voice channel that this person is in, usually the person who asked (author_id in messages).",
   }),
-  channel_id: Schema.optional(ChannelId).annotate({ description: "Or: the ID of a voice channel in this Discord server." }),
+  channel_id: Schema.optional(ChannelId).annotate({ description: "Or: the ID of a voice channel." }),
+  brief: Schema.optional(Schema.NonEmptyString).annotate({
+    description:
+      "When you join from a DM or another channel: what the call needs to know from this conversation, in one or two sentences. " +
+      "The call's conversation starts with it. People in the call can see what you say there, so do not include private things from a DM.",
+  }),
 })
 
 const LeaveVoiceArgs = Schema.Struct({})
+
+const ReadChannelArgs = Schema.Struct({
+  channel_id: ChannelId.annotate({ description: "ID of a server channel or thread, for example from the <elsewhere> list." }),
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))).annotate({
+    description: "How many of the newest messages to read. The default is 30.",
+  }),
+})
 
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
 
@@ -373,20 +385,30 @@ export const make = (
     ),
     tool(
       "join_voice",
-      "Join a voice channel of this Discord server when someone asks you to, so that you hear what people say there " +
-        "and your replies are spoken aloud. Give user_id or channel_id. Not available in DMs.",
+      "Join a voice channel when someone asks you to, so that you hear what people say there and your replies are spoken aloud. " +
+        "Give user_id or channel_id. In a server channel, user_id finds the person's voice channel in that server. " +
+        "In a DM, it finds it in any server that you share with them. Discord bots cannot join DM calls.",
       JoinVoiceArgs,
       (input) =>
         ToolCalls.Call.JoinVoice({
           userId: Option.fromUndefinedOr(input.user_id),
           channelId: Option.fromUndefinedOr(input.channel_id),
+          brief: Option.fromUndefinedOr(input.brief),
         }),
     ),
     tool(
       "leave_voice",
-      "Leave the voice channel that you are in on this Discord server. You also leave by yourself when nobody else is in it.",
+      "Leave your voice channel: in a server channel, the one in that server; in a DM, your only call. " +
+        "You also leave by yourself when nobody else is in it.",
       LeaveVoiceArgs,
       () => ToolCalls.Call.LeaveVoice(),
+    ),
+    tool(
+      "read_channel",
+      "In a DM: read the newest messages of a server channel where this person wrote in the last 7 days, " +
+        "when they talk about something that happened there. Images are saved, so you can look at them and work with them.",
+      ReadChannelArgs,
+      (input) => ToolCalls.Call.ReadChannel({ channelId: input.channel_id, limit: Option.fromUndefinedOr(input.limit) }),
     ),
   ]
 }

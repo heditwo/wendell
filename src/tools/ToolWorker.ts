@@ -2,6 +2,7 @@ import { Deferred, Effect, Layer, Option, Stream } from "effect"
 import { Conversations } from "../conversations/Conversations.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
+import { ChannelTools } from "./handlers/ChannelTools.ts"
 import { ExpressionTools } from "./handlers/ExpressionTools.ts"
 import { MemoryTools } from "./handlers/MemoryTools.ts"
 import { ModelTools } from "./handlers/ModelTools.ts"
@@ -24,6 +25,7 @@ export const layer = Layer.effectDiscard(
     const memoryTools = yield* MemoryTools.make
     const expressionTools = yield* ExpressionTools.make
     const voiceTools = yield* VoiceTools.make
+    const channelTools = yield* ChannelTools.make
 
     const remoteOf = (request: ToolCalls.Request) =>
       Option.match(fleet.byName(request.server), {
@@ -63,6 +65,7 @@ export const layer = Layer.effectDiscard(
         Forget: (call) => memoryTools.forget(target, call),
         JoinVoice: (call) => voiceTools.join(target, call),
         LeaveVoice: () => voiceTools.leave(target),
+        ReadChannel: (call) => channelTools.read(target, call),
       })
     })
 

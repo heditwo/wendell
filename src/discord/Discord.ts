@@ -22,6 +22,9 @@ export interface ChannelInfo {
   readonly isVoice: boolean
   readonly parentId: Option.Option<ChannelId>
   readonly guildId: Option.Option<GuildId>
+  readonly name: Option.Option<string>
+  /** The other person of a DM. */
+  readonly recipient: Option.Option<{ readonly userId: UserId; readonly name: string }>
 }
 
 export interface TranscriptLine {
@@ -31,7 +34,11 @@ export interface TranscriptLine {
   readonly isMe: boolean
   /** Another bot or a webhook, not Wendell. */
   readonly isBot: boolean
+  /** The text, with each attachment named as "[attachment: name]". */
   readonly content: string
+  readonly attachments: ReadonlyArray<Inbound.Attachment>
+  /** ISO 8601. */
+  readonly sentAt: string
 }
 
 export interface Button {
@@ -211,6 +218,8 @@ export interface Interface {
   readonly answerPress: (press: ButtonPress, text: string) => Effect.Effect<void, DiscordError>
   readonly member: (guildId: GuildId, userId: UserId) => Effect.Effect<Member, DiscordError>
   readonly voiceChannelOf: (guildId: GuildId, userId: UserId) => Effect.Effect<Option.Option<ChannelId>>
+  /** The person's voice channels in all of Wendell's Discord servers. */
+  readonly voiceChannelsOf: (userId: UserId) => Effect.Effect<ReadonlyArray<VoiceMember>>
   readonly voiceMembers: (channelId: ChannelId) => Effect.Effect<ReadonlyArray<VoiceMember>>
   /** Sends a voice state update (gateway opcode 4). False when no gateway connection is open. */
   readonly sendVoiceState: (update: VoiceStateUpdate) => Effect.Effect<boolean>

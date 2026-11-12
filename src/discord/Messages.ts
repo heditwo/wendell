@@ -5,7 +5,7 @@ import { ChannelId, MessageId, UserId } from "../shared/Ids.ts"
 import { truncate } from "../shared/Text.ts"
 import type { Button, Outgoing, TranscriptLine, Upload } from "./Discord.ts"
 import { discordError } from "./DiscordError.ts"
-import { displayName } from "./Payloads.ts"
+import { displayName, toAttachment } from "./Payloads.ts"
 
 export const MAX_MESSAGE_LENGTH = 2000
 const MAX_THREAD_NAME = 100
@@ -38,6 +38,8 @@ export const make = (me: UserId) =>
             content: [message.content, ...message.attachments.map((attachment) => `[attachment: ${attachment.filename}]`)]
               .filter((part) => part.trim() !== "")
               .join(" "),
+            attachments: message.attachments.map(toAttachment),
+            sentAt: message.timestamp,
           }),
         )
       },

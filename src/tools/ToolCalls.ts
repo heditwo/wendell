@@ -53,8 +53,13 @@ export type Call = Data.TaggedEnum<{
     readonly messageId: Option.Option<MessageId>
   }
   Forget: { readonly id: Option.Option<string>; readonly match: Option.Option<string> }
-  JoinVoice: { readonly userId: Option.Option<UserId>; readonly channelId: Option.Option<ChannelId> }
+  JoinVoice: {
+    readonly userId: Option.Option<UserId>
+    readonly channelId: Option.Option<ChannelId>
+    readonly brief: Option.Option<string>
+  }
   LeaveVoice: {}
+  ReadChannel: { readonly channelId: ChannelId; readonly limit: Option.Option<number> }
 }>
 
 /** `null` removes or clears the field. Fields that are not set stay as they are. */

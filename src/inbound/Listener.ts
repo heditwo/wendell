@@ -10,8 +10,10 @@ import { BusyModes } from "../modes/BusyModes.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId } from "../shared/Ids.ts"
 import { Attachments } from "./Attachments.ts"
+import { Elsewhere } from "./Elsewhere.ts"
 import { Inbound } from "./Inbound.ts"
 import { Recent } from "./Recent.ts"
+import { RecentPlaces } from "./RecentPlaces.ts"
 import { Room } from "./Room.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
@@ -39,6 +41,8 @@ export const layer = Layer.effectDiscard(
     const screen = yield* Screen.Service
     const places = yield* Places.Service
     const recent = yield* Recent.Service
+    const recentPlaces = yield* RecentPlaces.Service
+    const elsewhere = yield* Elsewhere.Service
     const attachments = yield* Attachments.Service
     const transcriber = yield* Transcriber.Service
     const busyModes = yield* BusyModes.Service
@@ -64,7 +68,10 @@ export const layer = Layer.effectDiscard(
         ? received
         : { ...received, transcript: yield* transcriber.transcribe(received) }
 
-      if (!message.authorIsBot) yield* recent.record(message)
+      if (!message.authorIsBot) {
+        yield* recent.record(message)
+        yield* recentPlaces.record(message)
+      }
 
       const place = yield* places.forMessage(message)
 
@@ -127,13 +134,22 @@ export const layer = Layer.effectDiscard(
         ),
       ].map(([userId, name]) => ({ userId, name }))
 
-      const recalled = yield* recollection.before({
-        conversationKey: `${conversation.remote.name}/${conversation.channelId}`,
-        remote: conversation.remote,
-        place: { guildId: conversation.guildId, channelId: conversation.channelId },
-        people,
-        text: batch.map(({ message }) => `${message.authorName}: ${Inbound.plainText(message)}`).join("\n"),
-      })
+      const [recalled, found] = yield* Effect.all(
+        [
+          recollection.before({
+            conversationKey: `${conversation.remote.name}/${conversation.channelId}`,
+            remote: conversation.remote,
+            place: { guildId: conversation.guildId, channelId: conversation.channelId },
+            people,
+            text: batch.map(({ message }) => `${message.authorName}: ${Inbound.plainText(message)}`).join("\n"),
+          }),
+          elsewhere.forDm(
+            conversation,
+            batch.map(({ message }) => message),
+          ),
+        ],
+        { concurrency: 2 },
+      )
 
       const asked = Option.fromUndefinedOr(waiting.at(-1))
 
@@ -150,7 +166,7 @@ export const layer = Layer.effectDiscard(
 
       yield* conversations.deliver(
         conversation,
-        [...recalled.blocks, ...overheard.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
+        [...recalled.blocks, ...overheard.blocks, ...found.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
@@ -160,9 +176,10 @@ export const layer = Layer.effectDiscard(
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
           busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
         },
-        [...overheard.images, ...routed.flatMap(({ files }) => Attachments.images(files))],
+        [...overheard.images, ...found.images, ...routed.flatMap(({ files }) => Attachments.images(files))],
       )
       yield* recalled.delivered
+      yield* found.delivered
       yield* capture.touch(conversation, first.message.id)
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,

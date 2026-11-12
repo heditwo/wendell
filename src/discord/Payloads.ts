@@ -20,10 +20,23 @@ const isThreadChannel = (channel: DiscordTypes.APIChannel): channel is DiscordTy
 
 export const describeChannel = (channel: DiscordTypes.APIChannel): ChannelInfo => {
   const guildId = "guild_id" in channel ? Option.fromNullishOr(channel.guild_id).pipe(Option.map(GuildId.make)) : Option.none()
+  const name = "name" in channel ? Option.fromNullishOr(channel.name) : Option.none()
+
+  const recipient =
+    "recipients" in channel && channel.recipients.length === 1
+      ? Option.fromUndefinedOr(channel.recipients[0]).pipe(Option.map((user) => ({ userId: UserId.make(user.id), name: displayName(user) })))
+      : Option.none()
 
   return isThreadChannel(channel)
-    ? { isThread: true, isVoice: false, parentId: Option.fromNullishOr(channel.parent_id).pipe(Option.map(ChannelId.make)), guildId }
-    : { isThread: false, isVoice: channel.type === GUILD_VOICE, parentId: Option.none(), guildId }
+    ? {
+        isThread: true,
+        isVoice: false,
+        parentId: Option.fromNullishOr(channel.parent_id).pipe(Option.map(ChannelId.make)),
+        guildId,
+        name,
+        recipient,
+      }
+    : { isThread: false, isVoice: channel.type === GUILD_VOICE, parentId: Option.none(), guildId, name, recipient }
 }
 
 export const displayName = (user: DiscordTypes.UserResponse) => user.global_name ?? user.username
@@ -56,7 +69,7 @@ const forwardsOf = (data: DiscordTypes.GatewayMessageCreateDispatchData) =>
     onSome: (decoded) => (decoded.message_snapshots ?? []).map((snapshot) => snapshot.message),
   })
 
-const toAttachment = (attachment: {
+export const toAttachment = (attachment: {
   readonly id: string
   readonly filename: string
   readonly url: string

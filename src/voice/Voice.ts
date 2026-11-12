@@ -49,6 +49,8 @@ export interface Interface {
   readonly leave: (guildId: GuildId) => Effect.Effect<boolean>
   /** The voice channel that Wendell is in or is joining in this guild. */
   readonly channelIn: (guildId: GuildId) => Effect.Effect<Option.Option<ChannelId>>
+  /** The voice channels that Wendell is in or is joining, in all guilds. */
+  readonly calls: Effect.Effect<ReadonlyArray<{ readonly guildId: GuildId; readonly channelId: ChannelId }>>
   /** Wendell is connected to the voice channel with this ID, so what he posts in its chat is also spoken. */
   readonly inCall: (channelId: ChannelId) => Effect.Effect<boolean>
   /** Speaks the readable part of a message in the call of this channel. False when Wendell is not in it or nothing is readable. */
@@ -69,6 +71,7 @@ const off: Interface = {
   join: () => Effect.fail(voiceError("Voice is off. The owner can turn it on with the voice setting in wendell.json.")),
   leave: () => Effect.succeed(false),
   channelIn: () => Effect.succeed(Option.none()),
+  calls: Effect.succeed([]),
   inCall: () => Effect.succeed(false),
   speak: () => Effect.succeed(false),
   utterances: Stream.empty,
@@ -161,6 +164,10 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
 
   const channelIn = (guildId: GuildId) =>
     connectionOf(guildId).pipe(Effect.map(Option.map((connection) => connection.channelId)))
+
+  const calls = Ref.get(connections).pipe(
+    Effect.map((all) => [...all].map(([guildId, connection]) => ({ guildId, channelId: connection.channelId }))),
+  )
 
   const connectedGuildOf = (channelId: ChannelId) =>
     Ref.get(connections).pipe(
@@ -410,6 +417,7 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
     join,
     leave,
     channelIn,
+    calls,
     inCall,
     speak,
     utterances: Stream.fromQueue(utterances),

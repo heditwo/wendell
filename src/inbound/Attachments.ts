@@ -9,13 +9,26 @@ import { Inbound } from "./Inbound.ts"
 /** Larger attachments are not downloaded. */
 export const MAX_BYTES = 25 * 1024 * 1024
 
+/** The parts of a message that saving its attachments needs. */
+export type Source = Pick<Inbound.Message, "id" | "attachments">
+
 export interface Interface {
   /** Saves a message's attachments in `directory/attachments/<message id>/` on the server. A file that cannot be saved becomes `Skipped`. */
   readonly save: (
     remote: Fleet.Remote,
     directory: AbsolutePath,
-    message: Inbound.Message,
+    message: Source,
   ) => Effect.Effect<ReadonlyArray<Inbound.FileNote>>
+  /**
+   * Saves the files of the newest messages, at most `max` files, because people talk about what they just posted.
+   * The files of older messages are only named. Returns the notes by message ID.
+   */
+  readonly saveNewest: (
+    remote: Fleet.Remote,
+    directory: AbsolutePath,
+    messages: ReadonlyArray<Source>,
+    max: number,
+  ) => Effect.Effect<ReadonlyMap<string, ReadonlyArray<Inbound.FileNote>>>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Attachments") {}
@@ -25,7 +38,7 @@ interface Planned {
   readonly note: Inbound.FileNote
 }
 
-const planned = (directory: string, message: Inbound.Message): ReadonlyArray<Planned> => {
+const planned = (directory: string, message: Source): ReadonlyArray<Planned> => {
   const taken = new Set<string>()
 
   return message.attachments.map((attachment): Planned => {
@@ -58,7 +71,7 @@ const planned = (directory: string, message: Inbound.Message): ReadonlyArray<Pla
 }
 
 /** Where each attachment goes and whether it is too large, before anything is downloaded. */
-export const plan = (directory: string, message: Inbound.Message) => planned(directory, message).map(({ note }) => note)
+export const plan = (directory: string, message: Source) => planned(directory, message).map(({ note }) => note)
 
 /** The saved images, which go to the model with the prompt. */
 export const images = (notes: ReadonlyArray<Inbound.FileNote>) =>
@@ -103,14 +116,40 @@ export const layer = Layer.effect(
     const save = Effect.fn("Attachments.save")(function* (
       remote: Fleet.Remote,
       directory: AbsolutePath,
-      message: Inbound.Message,
+      message: Source,
     ) {
       return yield* Effect.forEach(planned(directory, message), ({ attachment, note }) => saveOne(remote, attachment, note), {
         concurrency: 4,
       })
     })
 
-    return Service.of({ save })
+    const saveNewest = Effect.fn("Attachments.saveNewest")(function* (
+      remote: Fleet.Remote,
+      directory: AbsolutePath,
+      messages: ReadonlyArray<Source>,
+      max: number,
+    ) {
+      const notes = new Map<string, ReadonlyArray<Inbound.FileNote>>()
+      let budget = max
+
+      for (const message of messages.toReversed()) {
+        if (message.attachments.length === 0) continue
+
+        const kept = message.attachments.slice(0, Math.max(0, budget))
+
+        const skipped = message.attachments
+          .slice(kept.length)
+          .map((attachment) => Inbound.FileNote.Skipped({ name: attachment.name, size: attachment.size, reason: "older file, not downloaded" }))
+
+        budget -= kept.length
+
+        notes.set(message.id, [...(kept.length === 0 ? [] : yield* save(remote, directory, { ...message, attachments: kept })), ...skipped])
+      }
+
+      return notes
+    })
+
+    return Service.of({ save, saveNewest })
   }),
 )
 

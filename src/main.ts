@@ -12,8 +12,10 @@ import { Commands } from "./discord/commands/Commands.ts"
 import { Discord } from "./discord/Discord.ts"
 import { Profile } from "./discord/Profile.ts"
 import { Attachments } from "./inbound/Attachments.ts"
+import { Elsewhere } from "./inbound/Elsewhere.ts"
 import { Listener } from "./inbound/Listener.ts"
 import { Recent } from "./inbound/Recent.ts"
+import { RecentPlaces } from "./inbound/RecentPlaces.ts"
 import { Room } from "./inbound/Room.ts"
 import { Screen } from "./inbound/Screen.ts"
 import { SpeechToText } from "./transcription/SpeechToText.ts"
@@ -37,7 +39,7 @@ import { VoiceListener } from "./voice/VoiceListener.ts"
 const Platform = Layer.mergeAll(BunServices.layer, BunHttpClient.layer, Settings.layer, Recent.layer, ToolCalls.layer)
 
 // Files on this machine: wendell.json, the paired servers, and records in .data/.
-const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, Activity.layer)
+const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, Activity.layer, RecentPlaces.layer)
 
 // The two outside connections: Discord and the paired OpenCode servers.
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
@@ -65,7 +67,7 @@ const Services = Layer.mergeAll(
 
 // Long-running loops that react to Discord and OpenCode events.
 const Workers = Layer.mergeAll(Listener.layer, VoiceListener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
-  Layer.provide(Layer.mergeAll(Places.layer, Room.layer)),
+  Layer.provide(Layer.mergeAll(Places.layer, Room.layer, Elsewhere.layer)),
 )
 
 const Main = Workers.pipe(

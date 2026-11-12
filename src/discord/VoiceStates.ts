@@ -105,6 +105,10 @@ export const make = Effect.gen(function* () {
     return [...HashMap.values(yield* Ref.get(states))].filter((state) => state.channelId === channelId)
   })
 
+  const voiceChannelsOf = Effect.fn("Discord.voiceChannelsOf")(function* (userId: UserId) {
+    return [...HashMap.values(yield* Ref.get(states))].filter((state) => state.userId === userId)
+  })
+
   const sendVoiceState = Effect.fn("Discord.sendVoiceState")(function* (update: {
     readonly guildId: GuildId
     readonly channelId: Option.Option<ChannelId>
@@ -142,7 +146,7 @@ export const make = Effect.gen(function* () {
     .fromDispatch("VOICE_SERVER_UPDATE")
     .pipe(Stream.map((server) => ({ guildId: GuildId.make(server.guild_id), data: server })))
 
-  return { member, voiceChannelOf, voiceMembers, sendVoiceState, voiceStateChanges, voiceServers }
+  return { member, voiceChannelOf, voiceChannelsOf, voiceMembers, sendVoiceState, voiceStateChanges, voiceServers }
 })
 
 export * as VoiceStates from "./VoiceStates.ts"
