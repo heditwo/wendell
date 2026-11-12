@@ -13,7 +13,6 @@ const MAX_CHOICES = 25
 const MAX_CHOICE_LENGTH = 100
 const FLAG_EPHEMERAL = 64
 
-/** Slash commands, their autocomplete, and button presses. */
 export const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
 

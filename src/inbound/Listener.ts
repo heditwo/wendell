@@ -22,7 +22,7 @@ const IDLE_CHANNEL = Duration.minutes(30)
 
 interface Item extends Omit<Inbound.Routed, "files"> {
   readonly place: Places.Place
-  /** The screen is quite sure that the message is for Wendell. */
+  /** The screen's score for the message is at least `WENDELL_ENGAGE_ABOVE`. */
   readonly confident: boolean
 }
 

@@ -8,7 +8,6 @@ const meaning: Record<BusyModes.Mode, string> = {
   wait: "**wait**. New messages wait until I finish what I am doing.",
 }
 
-/** `/busy`: what happens to new messages while Wendell works in this conversation. */
 export const make = Effect.gen(function* () {
   return yield* ModeCommand.make({
     spec: {

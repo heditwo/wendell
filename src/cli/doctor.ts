@@ -91,7 +91,7 @@ const checkServer = Effect.fn("doctor.checkServer")(function* (server: Servers.P
   const decision = `${settings.decisionModel.providerID}/${settings.decisionModel.id}`
 
   if (WendellConfig.isBlocked(prefs, decision)) {
-    yield* check(label("screen"), false, `${decision} uses a blocked provider, so the screen lets every message through`)
+    yield* check(label("decision model"), false, `${decision} uses a blocked provider, so Wendell does not filter messages that do not address him`)
 
     return yield* check(label("allow"), true, (prefs.allow ?? []).join(", ") || "nothing beyond the defaults")
   }
@@ -108,11 +108,11 @@ const checkServer = Effect.fn("doctor.checkServer")(function* (server: Servers.P
     )
 
   yield* check(
-    label("screen"),
+    label("decision model"),
     Option.isNone(screen),
     Option.match(screen, {
       onNone: () => decision,
-      onSome: (message) => `${decision} failed, so the screen fails open: ${message}`,
+      onSome: (message) => `${decision} failed, so Wendell does not filter messages that do not address him: ${message}`,
     }),
   )
 

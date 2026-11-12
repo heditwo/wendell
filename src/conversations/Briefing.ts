@@ -71,7 +71,7 @@ export const make = Effect.gen(function* () {
 
       return [
         where,
-        "This is a task thread: one piece of real work. Everything said here is about it.",
+        "This is a task thread for one piece of work. Everything said here is about it.",
         ...Option.match(task, {
           onNone: () => [],
           onSome: (current) => [
@@ -90,7 +90,7 @@ export const make = Effect.gen(function* () {
           ],
         }),
         "You can edit files and run commands in your working directory. For long-running processes such as dev servers or tunnels, use background shell jobs.",
-        "Keep the task record current with update_task after meaningful progress.",
+        "Keep the task record current: call update_task when a part of the work is finished.",
         "For a large, independent part of the work, call start_task without message_id to start a sub-task in its own thread.",
         ...(subtasks.length === 0
           ? []
@@ -104,7 +104,7 @@ export const make = Effect.gen(function* () {
       where,
       conversation.kind === "dm"
         ? "This is a private DM. You can work here directly; DMs have no threads."
-        : "This is a shared channel. Answer quick questions here. For real work, call start_task to move it into its own thread.",
+        : "This is a shared channel. Answer quick questions here. For longer work, call start_task to move it into its own thread.",
       "You can use the full setup here: edit files, run commands and use subagents.",
       "Tasks in this server, most recent first. When someone refers to earlier work, find it here and use continue_task:",
       describeTasks(recent),

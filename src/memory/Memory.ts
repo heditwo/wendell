@@ -4,7 +4,7 @@ import { Settings } from "../config/Settings.ts"
 import { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 import { JsonStore } from "../shared/JsonStore.ts"
 
-/** A scope holds at most this many notes and characters, like a person's working knowledge of someone. */
+/** The limits of one scope: one person or one server. */
 export const MAX_NOTES = 40
 export const MAX_CHARS = 4_000
 export const MAX_NOTE_CHARS = 300

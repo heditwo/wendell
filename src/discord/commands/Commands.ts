@@ -9,7 +9,6 @@ import { ModelCommand } from "./ModelCommand.ts"
 import { ModelsCommand } from "./ModelsCommand.ts"
 import { RemindersCommand } from "./RemindersCommand.ts"
 
-/** Registers Wendell's slash commands in every server and answers them and their autocomplete requests. */
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const discord = yield* Discord.Service

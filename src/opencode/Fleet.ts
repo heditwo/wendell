@@ -40,7 +40,7 @@ interface Live {
   readonly listed: Deferred.Deferred<void>
 }
 
-/** Wendell's tools in one directory. No live connection: the server unloaded the directory, and the tools went with it. */
+/** Wendell's tools in one directory. `live` is none after the server unloaded the directory. */
 interface Attachment {
   readonly remote: Remote
   readonly directory: AbsolutePath
@@ -266,7 +266,7 @@ export const layer = Layer.effect(
       yield* connected(remote, known.value.directory)
     })
 
-    // The event stream cannot resume, so an unload during a break is not reported. New connections are always right.
+    // The event stream cannot resume, so an unload during a break is not reported. It is always safe to replace a connection.
     const reopenAll = Effect.fn("Fleet.reopenAll")(
       function* (remote: Remote) {
         const token = tokens.get(remote.name)

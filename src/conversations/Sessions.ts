@@ -32,7 +32,6 @@ export const make = Effect.gen(function* () {
   const contexts = yield* Ref.make(HashMap.empty<string, string>())
   const roots = yield* Ref.make(HashMap.empty<string, Option.Option<string>>())
 
-  /** Wendell's session at the top of a subagent tree, or none when the session is not Wendell's. */
   const rootOf = Effect.fn("Conversations.rootOf")(function* (remote: Fleet.Remote, sessionID: string) {
     const cacheKey = keyOf(remote.name, sessionID)
     const cached = HashMap.get(yield* Ref.get(roots), cacheKey)
@@ -56,7 +55,6 @@ export const make = Effect.gen(function* () {
     return root
   })
 
-  /** The conversation behind one of Wendell's sessions, if it was prepared by this process. */
   const forSession = Effect.fn("Conversations.forSession")(function* (server: string, sessionID: string) {
     return HashMap.get(yield* Ref.get(prepared), keyOf(server, sessionID))
   })
@@ -123,7 +121,6 @@ export const make = Effect.gen(function* () {
     }
   })
 
-  /** Creates the conversation's session when it does not exist yet, and prepares it. */
   const ensure = Effect.fn("Conversations.ensure")(function* (conversation: Conversation) {
     const sessionID = SessionKey.forChannel(conversation.channelId)
     const { remote } = conversation

@@ -6,7 +6,6 @@ import { ToolCalls } from "../ToolCalls.ts"
 
 const PRESENT_MESSAGES = 50
 
-/** `wendell_remember` and `wendell_forget`. */
 export const make = Effect.gen(function* () {
   const discord = yield* Discord.Service
   const memory = yield* Memory.Service

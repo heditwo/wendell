@@ -5,7 +5,6 @@ import { Embeds } from "../../discord/Embeds.ts"
 import { ToolCalls } from "../ToolCalls.ts"
 import { Uploads } from "../Uploads.ts"
 
-/** `wendell_reply` and `wendell_react`: the only ways the agent speaks. */
 export const make = Effect.gen(function* () {
   const discord = yield* Discord.Service
   const activity = yield* Activity.Service

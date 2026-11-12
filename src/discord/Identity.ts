@@ -21,7 +21,6 @@ const presenceStatuses = {
   invisible: DiscordTypes.PresenceUpdateStatus.Invisible,
 } as const
 
-/** Wendell's own profile: username, images, "About me", nickname and presence. */
 export const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
   const gateway = yield* DiscordGateway

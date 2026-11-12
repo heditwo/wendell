@@ -13,7 +13,6 @@ const SCOPES: ReadonlyArray<{ readonly name: string; readonly value: ToolCalls.M
   { name: "server default", value: "default" },
 ]
 
-/** `/model`: changes the model of this conversation, or the server default. Autocompletes over the server's models. */
 export const make = Effect.gen(function* () {
   const places = yield* Places.Service
   const models = yield* Models.Service

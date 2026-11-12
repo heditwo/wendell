@@ -12,7 +12,7 @@ const AUDIO_EXTENSIONS = new Set([".ogg", ".oga", ".opus", ".mp3", ".m4a", ".wav
 export interface Interface {
   /**
    * The text of the message's voice messages and audio files, from the configured speech-to-text provider.
-   * None when there is no audio or transcription is off. Never fails; results are cached per attachment.
+   * None when there is no audio, when transcription is off, or when it fails. Results are cached per attachment.
    */
   readonly transcribe: (message: Inbound.Message) => Effect.Effect<Option.Option<string>>
 }

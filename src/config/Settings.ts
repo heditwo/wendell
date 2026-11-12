@@ -42,7 +42,6 @@ export const parseModelRef = (name: string, value: string): Effect.Effect<Model.
 
 const absolute = (value: string) => path.resolve(value)
 
-/** The time zone of the machine that runs Wendell. */
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 export const config = Config.all({

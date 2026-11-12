@@ -1,6 +1,5 @@
 import { Schema } from "effect"
 
-/** `memory` in `wendell.json`. */
 export const Config = Schema.Struct({
   /**
    * `background` (default): when a conversation has been quiet for a while, a small model reads the new messages and

@@ -13,7 +13,6 @@ export interface Activity {
   readonly text: string
 }
 
-/** Wendell's online status and what his profile shows. */
 export interface Presence {
   readonly status: Status
   readonly activity: Option.Option<Activity>

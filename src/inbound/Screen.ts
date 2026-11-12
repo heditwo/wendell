@@ -16,7 +16,7 @@ export interface Interface {
   /** Fails open: any error or timeout lets the message through, as not confident. */
   readonly screen: (remote: Fleet.Remote, message: Inbound.Message, question: string) => Effect.Effect<Verdict>
   /**
-   * Whether Wendell will answer this message with words, not only a reaction, so typing can start at once.
+   * Whether Wendell will answer this message with words, not only a reaction, so typing can start immediately.
    * Fails closed: on any error or timeout, typing waits until he starts to write.
    */
   readonly needsWords: (remote: Fleet.Remote, message: Inbound.Message) => Effect.Effect<boolean>
@@ -24,7 +24,7 @@ export interface Interface {
 
 export interface Verdict {
   readonly skip: boolean
-  /** The decision model is quite sure the message is for Wendell: show 👀 and typing right away. */
+  /** The score is at least `WENDELL_ENGAGE_ABOVE`: show 👀 and typing immediately. */
   readonly confident: boolean
 }
 

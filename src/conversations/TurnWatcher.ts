@@ -268,7 +268,7 @@ export const make = (sessions: Sessions.Interface) =>
       yield* compactIfFull(conversation, sessionID).pipe(Effect.forkIn(scope))
 
       if (Option.isSome(failed) && (turn.expectReply || turn.progress || foreign)) {
-        yield* discord.send(channelId, `⚠️ I ran into an error: ${failed.value}\n-# If it keeps happening, pick another model with /model.`, Option.none())
+        yield* discord.send(channelId, `That did not work: ${failed.value}\n-# If it keeps happening, try another model with /model.`, Option.none())
         yield* activity.spoke(channelId)
 
         return

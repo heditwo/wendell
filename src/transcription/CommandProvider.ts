@@ -19,7 +19,6 @@ export interface Config extends Schema.Schema.Type<typeof Config> {}
 
 const failed = (step: string) => (cause: unknown) => new Provider.TranscriptionError({ step, cause })
 
-/** Keeps the lines that do not match any of `ignore`. */
 export const cleanOutput = (output: string, ignore: ReadonlyArray<RegExp>) =>
   output
     .split("\n")
@@ -27,7 +26,6 @@ export const cleanOutput = (output: string, ignore: ReadonlyArray<RegExp>) =>
     .join("\n")
     .trim()
 
-/** Runs a speech-to-text program on this machine. */
 export const make = Effect.fn("CommandProvider.make")(function* (config: Config) {
   const fs = yield* FileSystem.FileSystem
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner

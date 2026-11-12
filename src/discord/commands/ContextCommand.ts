@@ -33,7 +33,6 @@ export const parseLimit = (text: string): Option.Option<number> => {
 const describeLimit = (limit: number) =>
   limit === 0 ? "off (OpenCode compacts by itself near the model's limit)" : `${formatTokens(limit)} tokens`
 
-/** `/context`: the conversation's context size and limit, a new limit, or a compaction now. */
 export const make = Effect.gen(function* () {
   const places = yield* Places.Service
   const limits = yield* ContextLimits.Service

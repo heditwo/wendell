@@ -5,7 +5,6 @@ import { Models } from "../../opencode/Models.ts"
 import type { Discord } from "../Discord.ts"
 import { Command } from "./Command.ts"
 
-/** `/models`: shows the model of this conversation and the server default. */
 export const make = Effect.gen(function* () {
   const places = yield* Places.Service
   const models = yield* Models.Service

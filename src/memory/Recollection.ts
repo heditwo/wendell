@@ -18,9 +18,9 @@ const JUDGE_TIMEOUT = Duration.seconds(4)
 const MAX_CANDIDATES = 60
 
 /**
- * A fact must clearly fit the message. When the message relies on earlier conversations, recall opens up.
- * The limits and the wording of the questions were chosen together, against simulated messages and the default
- * decision model. Check them again when one of the three changes.
+ * A fact must clearly fit the message. When the message refers to earlier conversations, the threshold is lower
+ * and the limit is higher. The limits and the wording of the questions were tuned together, against simulated
+ * messages and the default decision model. Check them again when one of the three changes.
  */
 const FACT_ABOVE = 0.6
 const FACT_LIMIT = 3
@@ -50,7 +50,7 @@ export interface Interface {
   readonly overheard: (message: Inbound.Message) => Effect.Effect<void>
   /**
    * What to put in front of the next batch: the profiles of people this conversation has not seen yet,
-   * the facts that the messages touch, and the messages overheard since its last turn. Never fails.
+   * the facts that the messages touch, and the messages overheard since its last turn.
    * Nothing is recorded as shown yet: the caller must run `delivered` after the prompt was delivered,
    * and must not run it when delivery failed, so the same notes come up again in the next batch.
    */
@@ -59,7 +59,7 @@ export interface Interface {
 
 export interface Recall {
   readonly blocks: ReadonlyArray<string>
-  /** Records the notes in `blocks` as shown to the conversation. Never fails. */
+  /** Records the notes in `blocks` as shown to the conversation. */
   readonly delivered: Effect.Effect<void>
 }
 

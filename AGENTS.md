@@ -20,6 +20,16 @@ Wendell is a Discord bot that connects to running OpenCode servers and joins con
 - Commit and push to `origin main` when a feature is done and `bun run check` passes. Use short, conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`).
 - Never commit `.env`, `wendell.json` or anything in `.data/`.
 
+## Writing
+
+This applies to the README, `persona.md`, comments, tool and command descriptions, and the messages that Wendell posts himself.
+
+- Say what Wendell does in literal words. Do not use metaphors, slogans or claims about his personality ("an AI regular", "reads the room").
+- Do not use a term before you explain it. In text for users, write "the decision model", not "the screen".
+- Say each thing one time, in one place. Do not add a diagram that only repeats the text.
+- Do not write a comment that repeats a name, a signature or a description string next to it.
+- Do not start Wendell's own messages with an emoji.
+
 ## Effect conventions
 
 - Services use the module namespace style. `X.ts` exports `interface Interface`, `class Service extends Context.Service<Service, Interface>()("wendell/X")` and `layer`, and ends with `export * as X from "./X.ts"`. Consumers `import { X } from "./X.ts"`.

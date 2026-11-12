@@ -18,7 +18,6 @@ const SentMessage = Schema.Struct({ id: Schema.String })
 
 const buttonStyles = { primary: 1, secondary: 2, success: 3, danger: 4 } as const
 
-/** Messages, reactions, typing and threads. */
 export const make = (me: UserId) =>
   Effect.gen(function* () {
     const rest = yield* DiscordREST

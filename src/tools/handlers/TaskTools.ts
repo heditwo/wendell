@@ -40,7 +40,6 @@ const subtaskHandoff = (parent: Tasks.Task, task: Tasks.Task, brief: string) =>
     "Start the work now. Post updates and the result in this thread with wendell_reply.",
   ].join("\n")
 
-/** `wendell_start_task`, `wendell_continue_task` and `wendell_update_task`: tasks, sub-tasks and their hand-offs. */
 export const make = Effect.gen(function* () {
   const discord = yield* Discord.Service
   const activity = yield* Activity.Service
@@ -192,7 +191,7 @@ export const make = Effect.gen(function* () {
       .send(threadId, `Sub-task of <#${parent.threadId}>: ${truncate(brief, SHORT_BRIEF)}`, Option.none())
       .pipe(Effect.mapError(ToolCalls.failure("Could not post in the sub-task thread.")))
     yield* discord
-      .send(parent.threadId, `🧵 Sub-task started: <#${threadId}>`, Option.none())
+      .send(parent.threadId, `Started a sub-task: <#${threadId}>`, Option.none())
       .pipe(Effect.mapError(ToolCalls.failure("Could not post the sub-task link.")))
     yield* activity.spoke(parent.threadId)
     yield* conversations
@@ -269,7 +268,7 @@ export const make = Effect.gen(function* () {
 
     const open = (yield* tasks.subtasks(parentTaskId)).filter((sibling) => sibling.status === "active")
 
-    yield* discord.send(parent.value.threadId, `✅ <#${task.threadId}> is done.`, Option.none()).pipe(Effect.ignore)
+    yield* discord.send(parent.value.threadId, `<#${task.threadId}> is done.`, Option.none()).pipe(Effect.ignore)
     yield* conversations.deliver(
       places.forTask(parent.value),
       [

@@ -10,7 +10,7 @@ export interface Command {
   readonly spec: Discord.CommandSpec
   /** Only the person who called the command sees the answer. */
   readonly ephemeral: (call: Discord.CommandCall) => boolean
-  /** The answer text. Never fails: failures become a short apology. */
+  /** The answer text. A failure becomes a short apology. */
   readonly answer: (call: Discord.CommandCall) => Effect.Effect<string>
   /** Choices for the focused option while someone types. */
   readonly autocomplete: Option.Option<(call: Discord.CommandCall, query: string) => Effect.Effect<ReadonlyArray<Discord.Choice>>>

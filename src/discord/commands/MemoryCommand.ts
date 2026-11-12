@@ -6,7 +6,6 @@ import { Command } from "./Command.ts"
 const describeNote = (note: Memory.Note) =>
   `• ${note.kind === "profile" ? "*how to treat you:* " : ""}${note.text} \`${note.id}\`${note.private ? " (DMs only)" : ""}`
 
-/** `/memory`: shows what Wendell remembers about the caller and this server, or forgets one of those notes. */
 export const make = Effect.gen(function* () {
   const memory = yield* Memory.Service
 
@@ -35,7 +34,7 @@ export const make = Effect.gen(function* () {
         const note = yield* memory.forget(forget.value.trim(), scopes, place).pipe(Effect.option)
 
         return Option.match(note, {
-          onNone: () => "I have no such note about you or this server.",
+          onNone: () => "I have no note like that about you or this server.",
           onSome: (found) => `Forgotten: ${found.text}`,
         })
       }

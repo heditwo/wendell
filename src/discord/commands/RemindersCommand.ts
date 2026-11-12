@@ -36,7 +36,6 @@ const nextOf = (schedule: ScheduleInfo) => {
 
 const describeSchedule = (schedule: ScheduleInfo) => `- **${labelOf(schedule)}**: ${whenOf(schedule)}, ${nextOf(schedule)}`
 
-/** `/reminders`: lists the schedules of this conversation's session, or cancels one. */
 export const make = Effect.gen(function* () {
   const places = yield* Places.Service
 
@@ -60,7 +59,7 @@ export const make = Effect.gen(function* () {
         const wanted = cancel.value.trim()
         const found = schedules.find((schedule) => schedule.id === wanted || schedule.name === wanted)
 
-        if (found === undefined) return "I found no reminder with that name in this conversation."
+        if (found === undefined) return "There is no reminder with that name here."
 
         yield* remote.client.experimental.schedule.delete({ scheduleID: found.id })
         yield* Effect.logInfo("Cancelled a schedule", { server: remote.name, channelId: call.channelId })
@@ -68,7 +67,7 @@ export const make = Effect.gen(function* () {
         return `Cancelled **${labelOf(found)}**.`
       }
 
-      if (schedules.length === 0) return "There are no reminders or check-ins in this conversation."
+      if (schedules.length === 0) return "No reminders or check-ins here."
 
       return ["Reminders and check-ins here:", ...schedules.map(describeSchedule)].join("\n")
     }).pipe(Command.orReply("Could not answer /reminders", "I could not read the reminders. Try again."))

@@ -1,21 +1,21 @@
 # Wendell
 
-Wendell is an AI regular in your Discord server. He reads the room, answers when you talk to him, and takes on real work in threads.
+Wendell is a Discord bot that joins the conversation in your server. He answers when you talk to him, and he does longer work, such as a coding task, in a thread.
 
-Wendell has no AI setup of his own. He connects to one or more running [OpenCode](https://opencode.ai) servers, for example over your tailnet. There he works with your models, skills and MCP servers. He connects to Discord with [dfx](https://github.com/tim-smart/dfx). Both sides are built on Effect 4.
+Wendell has no models or tools of his own. He connects to one or more running [OpenCode](https://opencode.ai) servers, for example over your tailnet, and uses the models, skills and MCP servers that you have there. He connects to Discord with [dfx](https://github.com/tim-smart/dfx). Wendell, dfx and the OpenCode client use Effect 4.
 
 ## Talking to Wendell
 
-- **Address him** with a mention, a reply to one of his messages, a DM, or just his name: "Wendell, …", "hey wendell …", "… right, Wendell?".
-- **Quick questions** get an answer in the channel.
-- **Real work** moves into a thread. "Wendell, build me a todo app and put it on a tunnel" starts a thread called *Todo app* with its own project directory. Everything said in that thread goes to that task, without a mention.
-- **Large work** splits into **sub-tasks**. In a task thread, Wendell can start a sub-task for an independent part of the work. Each sub-task gets its own thread in the same channel, with a link in the parent thread. When a sub-task is done, it reports to the parent task, and the parent continues.
-- **Later**, refer back from anywhere in the server: "Wendell, that todo app from yesterday, add dark mode". He finds the task and continues in its thread.
-- **Files and images**: send them with your message, also without text. Wendell sees images and can read other files. See [Media](#media).
-- **Reminders and check-ins**: "Wendell, remind me in 20 minutes to stretch", or "every weekday at 9, check that the site is up and tell me only if it is down". See [Reminders](#reminders).
-- **While he works**, you see 👀 on your message, typing, and a status line such as *Running a command…*. The status line disappears when he answers. For messages that do not address him (a photo without text, a follow-up), he shows them when the screen is quite sure that the message is for him, or else as soon as he starts to work on it. 👀 means he has seen the message. Typing starts at once when the decision model expects a written answer (a question or a request), and otherwise when he starts to write or to work. For thanks, "ok" and similar messages that he only reacts to, there is no typing.
-- **Approvals**: when the agent needs permission (for example for a shell command, or to read outside its project directory), Wendell checks the conversation's approval mode. See [Approvals](#approvals).
-- He also joins in **without being addressed** in channels with a goal, and shortly after he has spoken in a conversation. A cheap decision model screens these messages first.
+- To talk to him, mention him, reply to one of his messages, send him a DM, or use his name: "Wendell, …", "hey wendell …", "… right, Wendell?".
+- He answers quick questions in the channel.
+- He moves longer work into a thread. "Wendell, build me a todo app and put it on a tunnel" starts a thread called *Todo app* with its own project directory. In that thread, you do not need to mention him.
+- He can divide large work into sub-tasks. Each sub-task gets its own thread in the same channel, with a link in the parent thread. When a sub-task is done, it reports to the parent task, and the parent continues.
+- You can refer to an earlier task from any channel in the server: "Wendell, that todo app from yesterday, add dark mode". He finds the task and continues in its thread.
+- You can send files, images and voice messages, also without text. See [Media](#media).
+- He can remind you, and he can run a check on a schedule: "Wendell, remind me in 20 minutes to stretch", or "every weekday at 9, check that the site is up and tell me only if it is down". See [Reminders](#reminders).
+- When the agent needs permission, for example for a shell command, Wendell approves the request or asks you. See [Approvals](#approvals).
+
+Wendell also answers messages that do not address him, in two cases: in a channel that has a goal (`channels.<id>.goal` in `wendell.json`), and for `WENDELL_FOLLOW_WINDOW` (default 10 minutes) after he spoke in a conversation. A small, fast model (`WENDELL_DECISION_MODEL`, the *decision model*) first decides if such a message is for him.
 
 ```mermaid
 sequenceDiagram
@@ -36,59 +36,52 @@ sequenceDiagram
   W->>T: Added a dark mode toggle.
 ```
 
-```mermaid
-sequenceDiagram
-  participant P as 🧵 Website (task)
-  participant W as Wendell
-  participant A as 🧵 Backend (sub-task)
-  participant B as 🧵 Frontend (sub-task)
-  P->>W: wendell_start_task (twice)
-  W->>A: thread, worktree, hand-off
-  W->>B: thread, worktree, hand-off
-  W->>P: 🧵 Sub-task started: links
-  A->>W: wendell_update_task, status done
-  W->>P: ✅ Backend is done, with its summary
-  B->>W: wendell_update_task, status done
-  W->>P: ✅ Frontend is done, with its summary
-  P->>P: merge the branches, report the result
-```
+### What you see while he works
+
+- 👀 on your message: he has seen it.
+- Typing: he writes an answer or does work. Typing starts immediately when the decision model expects a written answer. If he only adds a reaction, for example to "thanks", there is no typing.
+- A status line such as *Running a command…*. It disappears when he answers.
+
+For a message that does not address him, 👀 and typing appear when the decision model's score is `WENDELL_ENGAGE_ABOVE` or higher. With a lower score, they appear when he starts to work on the message.
 
 ## How it works
 
 ```mermaid
 flowchart LR
   D[Discord] <-->|gateway, REST| W[Wendell]
-  W -->|HTTP API: sessions, prompts, screen| S1[OpenCode server A]
+  W -->|HTTP API: sessions, prompts, decisions| S1[OpenCode server A]
   W -->|HTTP API| S2[OpenCode server B]
   S1 -.->|client MCP over WebSocket: Wendell's Discord tools| W
   S2 -.-> W
 ```
 
 - Each channel, task thread and DM has one OpenCode session. Sessions use the server owner's agent, skills and MCP servers, plus Wendell's persona from `persona.md`.
-- Long sessions are compacted: after each turn, Wendell checks the size of the session's context. When it reaches the limit (`/context limit:` for the conversation, else `contextLimit`, default 256k tokens), he asks OpenCode to compact it, whatever the model's window is. OpenCode's own automatic compaction stays on for smaller models.
-- Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 - Channels work in Wendell's root directory on the server (for example `~/wendell`). Each task gets a subdirectory (`~/wendell/todo-app`). Each DM gets `~/wendell/dm-<user ID>`.
 - A sub-task gets a git worktree of the parent task's repository when the parent's directory is in a git repository. The sub-task commits on its own branch, and the parent task merges it. Without a repository, the sub-task shares the parent's directory.
 - Wendell attaches his Discord tools to each server through OpenCode's client MCP (see [Discord tools](#discord-tools)). You do not install anything on the server.
-- The agent speaks only through these tools. When someone addresses Wendell and the turn ends without a reply, Wendell posts the turn's final text.
-- Some turns start without a Discord message, for example when a schedule fires or a background image is ready. Wendell follows these turns too. He posts an error if one fails, but he does not post the turn's text.
+- The agent can post in Discord only through these tools. When someone addresses Wendell and the turn ends without a reply, Wendell posts the turn's final text.
+- Some turns start without a Discord message, for example when a schedule fires or a background image is ready. Wendell posts an error if such a turn fails, but he does not post the turn's text.
+- After each turn, Wendell reads the size of the session's context. When it reaches the limit (`/context limit:` for the conversation, else `contextLimit`, default 256k tokens), he tells OpenCode to compact the session. The limit is the same for every model. OpenCode's own automatic compaction stays on for models with a smaller context.
+- Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 
 ## Media
 
 Files that you send to Wendell go to the OpenCode server, not to the machine that runs Wendell.
 
-- Wendell saves each attachment in the conversation's directory, in `attachments/<message ID>/<file name>`. He makes the file name safe first (letters, digits, `.`, `-` and `_`).
-- Files larger than 25 MB are not downloaded. The message tells the agent that they were skipped.
-- The agent gets the name, type, size and path of each file. PNG, JPEG, GIF and WebP images also go to the model with the prompt, so it sees them. The model must accept images.
-- Forwarded messages work too. The agent gets the forwarded text, marked as forwarded, and the forwarded files and images like other attachments.
-- Messages with only a file or a sticker work like other messages. For example, reply to Wendell with only a screenshot.
+- Wendell saves each attachment in the conversation's directory, in `attachments/<message ID>/<file name>`. In the file name, he keeps only letters, digits, `.`, `-` and `_`.
+- Files larger than 25 MB are not downloaded. The agent gets a note that they were skipped.
+- The agent gets the name, type, size and path of each file. PNG, JPEG, GIF and WebP images also go to the model with the prompt. The model must accept images.
+- The agent gets the text of a forwarded message, marked as forwarded, and its files.
+- A message can contain only a file or a sticker. For example, reply to Wendell with only a screenshot.
 
-Voice messages and audio files are transcribed by a speech-to-text **provider** that you choose with `transcription` in `wendell.json`. Transcription is off until you choose one:
+### Voice messages
+
+A speech-to-text provider transcribes voice messages and audio files. Set the provider with `transcription` in `wendell.json`. The default is `off`.
 
 | `provider` | What it does | Example |
 | --- | --- | --- |
 | `command` | Runs a speech-to-text program on the machine that runs Wendell. `{file}` in `command` becomes the audio file, and the text comes from stdout. With `convert` (default `true`), `ffmpeg` first makes a 16 kHz mono WAV file. `ignoreLines` removes output lines that match regular expressions, such as progress messages. | `{ "provider": "command", "command": ["whisper-cli", "-m", "ggml-base.en.bin", "-nt", "-f", "{file}"] }` |
-| `openai` | Sends the audio to an OpenAI-compatible `POST <url>/audio/transcriptions` endpoint. This can be a free local server such as [speaches](https://github.com/speaches-ai/speaches) or LocalAI, or a hosted API. `apiKeyEnv` names the environment variable with the key, when the endpoint needs one. `language` is an optional hint. | `{ "provider": "openai", "url": "http://localhost:8000/v1", "model": "Systran/faster-whisper-small" }` |
+| `openai` | Sends the audio to an OpenAI-compatible `POST <url>/audio/transcriptions` endpoint. This can be a local server such as [speaches](https://github.com/speaches-ai/speaches) or LocalAI, or a hosted API. `apiKeyEnv` is the name of the environment variable that contains the key, when the endpoint needs one. `language` is an optional hint. | `{ "provider": "openai", "url": "http://localhost:8000/v1", "model": "Systran/faster-whisper-small" }` |
 | `off` | No transcription. The agent gets only the audio file. | `{ "provider": "off" }` |
 
 For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lines before the text:
@@ -103,105 +96,71 @@ For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lin
 }
 ```
 
-- The transcript goes to the agent with the message, and routing uses it. So "Wendell, …" in a voice message addresses him.
-- Speech recognition often mishears "Wendell". So a voice message without his name still goes to the screen, which knows about the problem, instead of being ignored.
+- The agent gets the transcript with the message. "Wendell, …" in a voice message addresses him.
+- Speech recognition often gets the name "Wendell" wrong. Thus the decision model also examines voice messages that do not contain his name.
 - If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
 - `bun run doctor` checks the provider: that the program and `ffmpeg` exist, or that the endpoint answers.
-- To add a provider, write a module in `src/transcription/` with its `Config` schema and a `make` that returns a `Provider.Provider`, then add it to `TranscriptionConfig.Config` and `SpeechToText.layer`.
+- To add a provider, write a module in `src/transcription/` with its `Config` schema and a `make` that returns a `Provider.Provider`. Then add it to `TranscriptionConfig.Config` and `SpeechToText.layer`.
 
-Wendell can also send files:
+### Files and images from Wendell
 
 - The agent attaches files with `files` in `wendell_reply`. Wendell reads them from the server and uploads them to Discord. A message can have at most 10 files, 20 MB for each file and 25 MB in total.
 - Wendell sends only files from the conversation's directory, the directories of its tasks, and the server's temporary directory (for example `/tmp/opencode`). He never sends `.env` files.
 - For structured results, the agent can add `embeds`. An embed image can show an attached file with `attachment://<file name>`.
-- When you ask for an image, the agent uses OpenCode's `image_generate` tool. Wendell checks for it when he connects, and again whenever the server's config, models or providers change, so no restart is needed: the server needs an enabled image model, and before OpenCode 2.2.2 also `experimental.image_generate` in its config. Without it, he tells people that he cannot make images on that server. The tool runs in the background. When the image is ready, the agent posts it.
-
-```mermaid
-sequenceDiagram
-  participant You
-  participant W as Wendell
-  participant S as OpenCode server
-  You->>W: photo.png and "Wendell, what is this?"
-  W->>S: write attachments/<message ID>/photo.png
-  W->>S: prompt with the file list and the image
-  S->>W: wendell_reply(text, files)
-  W->>S: read the files
-  W->>You: message with the files
-```
+- To make an image, the agent uses OpenCode's `image_generate` tool. The server must have an enabled image model, and before OpenCode 2.2.2 also `experimental.image_generate` in its config. Wendell looks for the tool when he connects, and again when the server's config, models or providers change. Without the tool, he tells people that he cannot make images on that server. The tool runs in the background, and the agent posts the image when it is ready.
 
 ## Memory
 
-Wendell remembers people the way a thoughtful friend does: not everything, and not all the time.
+Wendell keeps short notes about people and about each Discord server. The agent gets only the notes that apply to the current messages.
 
-- **Two kinds of notes.** A *profile* note says how to treat someone ("prefers short answers"). A *fact* is something about them or the server ("plays OSRS"). **Person notes** follow one person into every Discord server where Wendell is. **Server notes** are about one Discord server. Notes from a DM come back only in DMs with that person.
-- **Profiles once per session.** Each profile note comes with the next message of that person in a conversation, once, and again after the conversation is compacted. A server can have profile notes too ("keep answers short here"). They come once per session in the same way. A note that changes comes again.
-- **Facts only when cued.** For each batch of messages, the decision model checks the facts about the people in it and about the server, with one yes or no question per fact. At most 3 facts that clearly fit come with the batch. When a message relies on earlier conversations ("remember my setup?"), recall opens up to 6 facts with a lower bar. Each fact comes at most once per session unless it changes, so he does not keep bringing it up. If the decision model fails, no facts are recalled.
-- **Tact.** The recall block tells the agent to use notes only when they help now, not to say that it remembers, and not to bring up personal things in front of others in shared channels.
-- **Capture in the background.** When a conversation has been quiet for `WENDELL_CAPTURE_AFTER` (default 10 minutes), a small model (`memory.captureModel`) reads the new messages and the current notes and returns a few changes: add, update or remove. A conversation that does not go quiet is read after `WENDELL_CAPTURE_MAX_WAIT` (default 1 hour). The agent itself saves only when someone asks ("remember that …"). Turn capture off with `memory.capture: "off"`.
-  - Capture starts at the first message that Wendell got in a conversation. It does not read older history.
-  - One run reads at most the 400 newest unread messages, in groups of at most 40. If there are more, Wendell skips the older ones and writes a warning to the log.
-  - A new message does not stop a run that has started. Runs for one conversation do not overlap.
-  - Each change must name the message that it comes from, and Wendell checks who wrote that message. A change to a note about a person is accepted only when that person wrote the message. A change to a server note is accepted from a message of any person.
-  - Other bots and webhooks get no notes, and their messages cannot change a note.
-  - Capture needs a model that the server offers. Without one, capture does not run, and Wendell writes one warning to the log.
+### Notes
+
+- A *profile* note tells the agent how to treat someone ("prefers short answers"). A *fact* is something about a person or a server ("plays OSRS").
+- Notes about a person apply in every Discord server where Wendell is. Notes about a server apply only in that server. Notes from a DM apply only in DMs with that person.
 - Each person and each server has at most 40 notes and 4000 characters.
-- `/memory` shows what he remembers about you and this server. Only you see the answer. `/memory forget:<note>` removes a note. You can see and remove only your own notes and the server's notes.
-- Notes are in `.data/memory.json`, what each conversation has already recalled in `.data/recall.json`, and how far capture has read in `.data/capture.json`. Nothing goes to a memory service.
-- Wendell forgets what a conversation has recalled when its session is compacted or deleted. He also forgets it for all conversations of a server when the connection to that server is made again, because a compaction during the break is not reported. Notes can then come one more time.
+- `/memory` shows the notes about you and this server. `/memory forget:<note>` removes a note. You can see and remove only your own notes and the server's notes.
+- The notes are in `.data/memory.json`. Wendell uses no external memory service.
 
-Wendell also gets **room context**: up to 8 messages from the last 15 minutes that were not for him, sent with his next turn in that channel. So he knows what the room was talking about when someone turns to him.
+### When the agent gets a note
 
-```mermaid
-sequenceDiagram
-  participant You
-  participant W as Wendell
-  participant J as Decision model
-  participant A as Agent session
-  participant C as Capture model
-  You->>W: message
-  W->>J: which facts fit? does it refer to the past?
-  W->>A: profile (first time), fitting facts, room context, messages
-  Note over W,C: 10 quiet minutes later, or after 1 hour
-  W->>C: new messages and current notes
-  C->>W: add / update / remove
-```
+- The agent gets the profile notes of a person with that person's next message, and the profile notes of the server ("keep answers short here") with the next batch of messages.
+- For facts, the decision model answers one yes or no question for each fact about the server and about the people in the batch. The agent gets at most 3 facts that clearly apply. When a message refers to earlier conversations ("remember my setup?"), the agent gets at most 6 facts, and the threshold is lower. If the decision model fails, the agent gets no facts.
+- The agent gets each note one time in a session. It gets the note again after the note changes, after the session is compacted or deleted, and after Wendell connects to the OpenCode server again. `.data/recall.json` records which notes each conversation has received.
+- With the notes, the agent gets these rules: use a note only when it helps with the current messages, do not say that you remember, and do not mention personal things in a shared channel.
+- The agent also gets up to 8 messages from the last 15 minutes that were not for Wendell, with his next turn in that channel. Thus he knows the subject of the conversation when someone addresses him.
+
+### How notes are made
+
+- When a conversation has been quiet for `WENDELL_CAPTURE_AFTER` (default 10 minutes), a small model (`memory.captureModel`) reads the new messages and the current notes. It adds, changes or removes notes. A conversation that does not go quiet is read after `WENDELL_CAPTURE_MAX_WAIT` (default 1 hour).
+- The agent itself saves a note only when someone asks ("remember that …").
+- To stop the background capture, set `memory.capture` to `"off"`.
+- Capture starts at the first message that Wendell got in a conversation. It does not read older history. `.data/capture.json` records the last message that it read.
+- One run reads at most the 400 newest unread messages, in groups of at most 40. If there are more, Wendell skips the older messages and writes a warning to the log.
+- Each change must refer to the message that it comes from. Wendell accepts a change to a note about a person only when that person wrote the message. He accepts a change to a server note from a message of any person.
+- Messages from other bots and webhooks cannot change a note, and Wendell keeps no notes about them.
+- Capture needs a model that the server offers. Without one, capture does not run, and Wendell writes one warning to the log.
 
 ## Reminders
 
-Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCode config). The agent creates a schedule in the conversation's session with `schedule_create`. When it fires, the session gets the schedule's prompt as a new turn, and the agent posts in the conversation.
+Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCode config). The agent creates a schedule in the conversation's session with `schedule_create`. When the schedule fires, the session gets the schedule's prompt as a new turn, and the agent posts in the conversation.
 
 - A schedule fires once (`in 20 minutes`, or at a time), at an interval (`every 1 hour`) or on a cron (`0 9 * * 1-5`).
 - Times use `WENDELL_TIME_ZONE` (default: the time zone of the machine that runs Wendell), unless you name another time zone.
 - A reminder pings only the person who asked. The agent sets `mention` in `wendell_reply`, and Discord allows only that user. Wendell never pings roles, `@everyone` or `@here`.
-- A check that reports only problems stays silent when everything is fine.
-- Wendell attaches his tools to all known conversations when he starts, so a schedule can post after a restart. OpenCode unloads a directory that had no session activity for 60 minutes (`experimental.location_idle_timeout`), and the tools go with it. Wendell attaches them again when the directory loads, so a reminder can also post after a long quiet time.
-- `/reminders` shows the reminders of the current conversation with their next run. Only you see the answer. `/reminders cancel:<name>` cancels one; type a part of the name to select it.
+- If you ask for a check that reports only problems, Wendell posts nothing when the check finds no problem.
+- A schedule can post after a restart of Wendell. It can also post after OpenCode unloads a directory that had no session activity for 60 minutes (`experimental.location_idle_timeout`). In each case, Wendell attaches his tools again.
+- `/reminders` shows the reminders of the current conversation with their next run. `/reminders cancel:<name>` cancels one. Type a part of the name to select it.
 - Commands in a check still need approval (see [Approvals](#approvals)). In `review` mode, the reviewer approves what clearly follows from the conversation. Otherwise, buttons appear and the check waits for a person.
-
-```mermaid
-sequenceDiagram
-  participant You
-  participant W as Wendell
-  participant S as OpenCode server
-  You->>W: Wendell, remind me in 2 minutes to drink water
-  W->>S: prompt
-  S->>S: schedule_create (in 2 minutes)
-  S->>W: wendell_reply("Okay, in 2 minutes")
-  Note over S: 2 minutes later, also after a restart of Wendell
-  S->>S: the schedule wakes the session
-  S->>W: wendell_reply(text, mention: your user ID)
-  W->>You: @you Time to drink some water
-```
 
 ## Discord tools
 
-The agent speaks only through these tools.
+The agent can post in Discord only through these tools.
 
 | Tool | Use |
 | --- | --- |
 | `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping). |
 | `wendell_react` | Add an emoji reaction to a message. |
-| `wendell_start_task` | Move real work into a thread, or start a sub-task. |
+| `wendell_start_task` | Move longer work into a thread, or start a sub-task. |
 | `wendell_continue_task` | Send a request to an existing task. |
 | `wendell_update_task` | Record the summary and status of a task. |
 | `wendell_set_model` | Change the model of the conversation or the server default. |
@@ -214,21 +173,23 @@ The agent speaks only through these tools.
 | Command | What it does |
 | --- | --- |
 | `/model` | Change the model of this conversation, or the server default with `scope`. |
-| `/models` | Show the model of this conversation and the server default. Only you see the answer. |
+| `/models` | Show the model of this conversation and the server default. |
 | `/auto` | Show or set the approval mode of this conversation. |
-| `/busy` | What happens when you message Wendell while he works. `interrupt` (default): he reads it at his next step; if he has not read it after 15 seconds, his current step is interrupted. `steer`: at his next step, never interrupted. `wait`: after he finishes. Without a mode, shows the current one. |
-| `/context` | Show this conversation's context size and limit. `limit:<size>` (for example `256k`, `200000` or `off`) sets the limit for this conversation; sub-tasks use their parent's limit. `compact:now` compacts the conversation at once. |
-| `/memory` | Show what Wendell remembers about you and this server, or remove a note with `forget`. Only you see the answer. |
-| `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. Only you see the answer. |
+| `/busy` | Show or set what happens when you message Wendell while he works. `interrupt` (default): he reads the message at his next step. If he has not read it after 15 seconds, Wendell interrupts the current step. `steer`: he reads it at his next step, without an interrupt. `wait`: he reads it after he finishes. |
+| `/context` | Show this conversation's context size and limit. `limit:<size>` (for example `256k`, `200000` or `off`) sets the limit for this conversation. Sub-tasks use their parent's limit. `compact:now` compacts the conversation immediately. |
+| `/memory` | Show the notes about you and this server, or remove a note with `forget`. |
+| `/reminders` | Show the reminders of this conversation, or cancel one with `cancel`. |
+
+Only you see the answers of `/models`, `/memory` and `/reminders`. The same is true for `/auto`, `/busy` and `/context` when they only show a value.
+
+Wendell registers the slash commands in each Discord server when he starts. For a new Discord server, restart Wendell.
 
 ## Models
 
-Each conversation can use a different model. Change it in two ways:
+Each conversation can use a different model. There are two ways to change it:
 
 - Ask Wendell: "Wendell, use Opus here". He calls `wendell_set_model`.
 - Use the slash command `/model`. Type a part of the name, then select a model from the list. Set `scope` to *server default* to change the model for new conversations on that server.
-
-`/models` shows the model of the current conversation and the server default. Only you see the answer.
 
 Wendell selects the model for a new session in this order. He skips models of `blockedProviders`:
 
@@ -237,11 +198,11 @@ Wendell selects the model for a new session in this order. He skips models of `b
 3. `servers.<name>.model` in `wendell.json`.
 4. The default model of the agent. Wendell does not use it when the server has blocked providers.
 
-Wendell records these choices in `.data/models.json`, so they stay after a restart. A change of the server default applies only to new conversations. Wendell registers the slash commands in each Discord server when he starts. For a new Discord server, restart Wendell.
+Wendell records these choices in `.data/models.json`, so they stay after a restart. A change of the server default applies only to new conversations.
 
 ## Approvals
 
-Every shell command, every path outside Wendell's directory and every `.env` read needs approval. The shell runs with your full user rights, and OpenCode checks only the shell's working directory, not the paths in the command. Choose how Wendell answers with `/auto`, for each conversation:
+Every shell command, every path outside Wendell's directory and every `.env` read needs approval. The shell runs with your full user rights, and OpenCode checks only the shell's working directory, not the paths in the command. Set how Wendell answers these requests with `/auto`, for each conversation:
 
 | Mode | What happens |
 | --- | --- |
@@ -257,7 +218,7 @@ Every shell command, every path outside Wendell's directory and every `.env` rea
 
 ## Safety
 
-Wendell runs on your machine with your tools. **Everyone who can talk to him has full power**: edits, commands, subagents, dev servers and tunnels. This includes everyone in the Discord servers that he is in, and everyone who shares a server with him, because they can DM him. Add Wendell only to servers where everyone may use your machine.
+Wendell runs on your machine with your tools. **Everyone who can talk to him can use all of them**: edits, commands, subagents, dev servers and tunnels. This includes everyone in the Discord servers that he is in, and everyone who shares a server with him, because they can DM him. Add Wendell only to servers where everyone may use your machine.
 
 - Your agent's own permission rules still apply, including your `deny` rules.
 - Paths outside Wendell's directory and `.env` files need an approval button. Anyone in the conversation can press it.
@@ -344,19 +305,19 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | --- | --- |
 | `defaultServer` | OpenCode server for channels without a `server`. Default: the first paired server. |
 | `memory.capture` | `"background"` (default) or `"off"`. See [Memory](#memory). |
-| `memory.captureModel` | Model for background capture, as `provider/model` or `provider/model#variant`. Default: the server's default model (set with `/model`, else `servers.<name>.model`). The server must offer the model, and its provider must not be blocked. If no such model is set, capture does not run. Pick a small, cheap one. |
+| `memory.captureModel` | Model for background capture, as `provider/model` or `provider/model#variant`. Default: the server's default model (set with `/model`, else `servers.<name>.model`). The server must offer the model, and its provider must not be blocked. If no such model is set, capture does not run. Use a small model. |
 | `transcription` | The speech-to-text provider for voice messages: `command`, `openai` or `off` (default). See [Media](#media). |
 | `contextLimit` | Context size in tokens at which Wendell compacts a session, for every model. Default: `256000`. `0` leaves compaction to OpenCode alone. |
 | `servers.<name>.contextLimit` | The same, for one server. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |
 | `servers.<name>.agent` | Agent for Wendell's sessions. Default: the server's default agent. |
-| `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Pick a fast one, because chat should feel quick. `/model` can override it (see [Models](#models)). |
+| `servers.<name>.model` | Model as `provider/model`, with an optional `#variant`. Use a fast model, because people wait for the answer in chat. `/model` can override it (see [Models](#models)). |
 | `servers.<name>.blockedProviders` | Provider IDs that Wendell must never use on this server, for example `["anthropic"]` for a work account. Wendell skips their models when he selects a model, refuses them in `/model` and `wendell_set_model`, and moves existing sessions off them. With blocked providers, set `servers.<name>.model`, because the agent's default could use a blocked provider. Subagents with their own model in the OpenCode config ignore this rule; `bun run doctor` warns about them. |
 | `servers.<name>.allow` | Permission actions that need no approval, such as `"browse_*"`. Shell commands always go through approvals. |
 | `servers.<name>.busy` | Busy mode for conversations without their own: `"interrupt"` (default), `"steer"` or `"wait"`. |
 | `servers.<name>.approvals` | Approval mode for conversations without their own: `"review"` (default), `"auto"` or `"off"`. |
 | `channels.<id>.server` | OpenCode server for this channel. |
-| `channels.<id>.goal.wakeWhen` | What Wendell listens for without being addressed. |
+| `channels.<id>.goal.wakeWhen` | Which messages Wendell answers in this channel when nobody addresses him. |
 | `channels.<id>.goal.engagement` | How Wendell answers. |
 
 Threads use the server and goal of their parent channel. Task threads stay on the server where they started. Sub-tasks use the server of their parent task.
@@ -365,17 +326,17 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 
 | To change | Edit |
 | --- | --- |
-| Wendell's voice and rules | `persona.md` |
-| What Wendell listens for | `goal.wakeWhen` in `wendell.json` |
-| How many ambient messages the screen removes | `WENDELL_SKIP_BELOW` (keep it low) |
+| How Wendell writes, and his rules | `persona.md` |
+| Which messages Wendell answers when nobody addresses him | `goal.wakeWhen` in `wendell.json` |
+| The decision model's score below which Wendell ignores a message that does not address him | `WENDELL_SKIP_BELOW` (default `0.2`, keep it low) |
 | How long a message waits before it interrupts Wendell (`/busy interrupt`) | `WENDELL_INTERRUPT_AFTER` (default `15 seconds`) |
-| How sure the screen must be to show 👀 and typing at once for messages that do not address him | `WENDELL_ENGAGE_ABOVE` (default `0.8`) |
+| The score from which 👀 and typing show immediately for a message that does not address him | `WENDELL_ENGAGE_ABOVE` (default `0.8`) |
 | How long a conversation must be quiet before background capture reads it | `WENDELL_CAPTURE_AFTER` (default `10 minutes`) |
 | The longest time that background capture waits in a conversation that does not go quiet | `WENDELL_CAPTURE_MAX_WAIT` (default `1 hour`) |
-| How sure the reviewer must be to approve a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
+| The score from which the reviewer approves a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
-| How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` |
-| How long Wendell waits to batch messages | `WENDELL_BATCH_WINDOW` |
+| How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` (default `10 minutes`) |
+| How long Wendell collects messages before he delivers them together | `WENDELL_BATCH_WINDOW` (default `3 seconds`) |
 | The time zone for reminders | `WENDELL_TIME_ZONE` (default: the machine's time zone) |
 | The model of one conversation, or of a server | `/model`, or ask Wendell |
 
@@ -387,24 +348,4 @@ Changes to `persona.md`, `model` and `allow` reach existing sessions after a res
 bun run check
 ```
 
-The code is in `src/`, with one folder for each area:
-
-| Folder | Contents |
-| --- | --- |
-| `main.ts` | Connects all the parts. Wendell starts here. |
-| `cli/` | `bun run doctor`, `bun run pair` and `bun run unpair`. |
-| `config/` | Settings from the environment, `wendell.json` and the paired servers. |
-| `shared/` | IDs, the JSON files in `.data/`, and small helpers. |
-| `discord/` | The connection to Discord: messages, slash commands, buttons and Wendell's profile. |
-| `discord/commands/` | One file for each slash command. |
-| `inbound/` | Incoming messages: routing, the screen and attachments. |
-| `transcription/` | Voice messages and the speech-to-text providers. |
-| `conversations/` | Sessions, the context of each conversation, and the turn watcher (👀, typing, status line). |
-| `opencode/` | The connection to the OpenCode servers, models and permissions. |
-| `tools/` | Wendell's Discord tools for the agent, and one handler file for each group of tools. |
-| `tasks/` | Task threads and sub-tasks. |
-| `approvals/` | Permission requests and the reviewer. |
-| `modes/` | The approval mode and the busy mode of each conversation. |
-| `memory/` | Notes about people and servers. Capture writes the notes, and recall shows them to the agent. |
-
-`AGENTS.md` describes the conventions and the architecture for coding agents.
+The code is in `src/`, with one folder for each area. `src/main.ts` connects the parts. `AGENTS.md` describes the folders, the conventions and the architecture.

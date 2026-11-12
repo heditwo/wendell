@@ -19,7 +19,6 @@ const provider = (config: TranscriptionConfig.Config) => {
   }
 }
 
-/** Chooses the provider from `transcription.provider` in `wendell.json`. */
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {

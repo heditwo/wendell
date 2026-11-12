@@ -183,13 +183,13 @@ export const make = (
     ),
     tool(
       "react",
-      "Add an emoji reaction to a message. Use it for a light acknowledgement when a full reply is not needed.",
+      "Add an emoji reaction to a message. Use it to acknowledge a message when a full reply is not needed.",
       ReactArgs,
       (input) => ToolCalls.Call.React({ messageId: input.message_id, emoji: input.emoji }),
     ),
     tool(
       "start_task",
-      "In a channel: move real work (building, changing or investigating something over several steps) into its own Discord thread " +
+      "In a channel: move longer work (building, changing or investigating something over several steps) into its own Discord thread " +
         "with its own project directory. After it succeeds, do not reply in the channel. " +
         "In a task thread: start a sub-task for a large, independent part of the work, in a new thread. " +
         "It gets a git worktree when the task directory is in a git repository; otherwise it shares the task directory. " +
@@ -217,7 +217,7 @@ export const make = (
     tool(
       "update_task",
       "In a task thread: record what the task is and where it stands, so you can find it again later. " +
-        "Call it after meaningful progress, and with status \"done\" when the work is finished. " +
+        "Call it when a part of the work is finished, and with status \"done\" when all of the work is finished. " +
         "In a sub-task, status \"done\" reports the summary to the parent task.",
       UpdateTaskArgs,
       (input) =>

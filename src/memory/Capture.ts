@@ -55,7 +55,7 @@ export interface Interface {
   /**
    * The conversation had new messages, the first of them `first`. Capture runs once the conversation has been quiet
    * for `WENDELL_CAPTURE_AFTER`, or `WENDELL_CAPTURE_MAX_WAIT` after the first message that it has not read yet.
-   * Only a timer that has not fired is ever cancelled: a run that has started finishes.
+   * A new message can only restart the timer. It never stops a run that has started.
    */
   readonly touch: (conversation: Conversation, first: MessageId) => Effect.Effect<void>
 }

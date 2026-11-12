@@ -21,7 +21,6 @@ export interface Config extends Schema.Schema.Type<typeof Config> {}
 
 const failed = (step: string) => (cause: unknown) => new Provider.TranscriptionError({ step, cause })
 
-/** Calls an OpenAI-compatible transcription endpoint: a local server such as speaches or LocalAI, or a hosted API. */
 export const make = Effect.fn("OpenAIProvider.make")(function* (config: Config) {
   const http = yield* HttpClient.HttpClient
   const base = config.url.replace(/\/+$/, "")

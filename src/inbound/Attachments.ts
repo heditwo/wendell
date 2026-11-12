@@ -10,7 +10,7 @@ import { Inbound } from "./Inbound.ts"
 export const MAX_BYTES = 25 * 1024 * 1024
 
 export interface Interface {
-  /** Saves a message's attachments in `directory/attachments/<message id>/` on the server. Never fails. */
+  /** Saves a message's attachments in `directory/attachments/<message id>/` on the server. A file that cannot be saved becomes `Skipped`. */
   readonly save: (
     remote: Fleet.Remote,
     directory: AbsolutePath,
