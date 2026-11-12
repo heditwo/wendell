@@ -6,7 +6,8 @@
     "model": "Systran/faster-whisper-small"
   },
   "voice": {
-    "tts": { "url": "http://127.0.0.1:8880", "voice": "verity" }
+    "tts": { "url": "http://127.0.0.1:8880", "voice": "verity" },
+    "vad": { "silenceMs": 700, "minSpeechMs": 400, "maxUtteranceMs": 15000 }
   },
   "servers": {
     "home": {
