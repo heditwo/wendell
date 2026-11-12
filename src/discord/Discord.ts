@@ -6,6 +6,7 @@ import type { Inbound } from "../inbound/Inbound.ts"
 import { type ChannelId, type GuildId, type MessageId, UserId } from "../shared/Ids.ts"
 import { type DiscordError, discordError } from "./DiscordError.ts"
 import type { Embeds } from "./Embeds.ts"
+import { Expressions } from "./Expressions.ts"
 import { Identity } from "./Identity.ts"
 import { Interactions } from "./Interactions.ts"
 import { Messages } from "./Messages.ts"
@@ -142,6 +143,19 @@ export interface Interface {
   /** The "About me" text, which is the application's description. */
   readonly updateAbout: (text: string | null) => Effect.Effect<void, DiscordError>
   readonly updateNickname: (guildId: GuildId, nickname: string | null) => Effect.Effect<void, DiscordError>
+  readonly addEmoji: (guildId: GuildId, emoji: Expressions.NewEmoji) => Effect.Effect<Expressions.CreatedEmoji, DiscordError>
+  /** Returns the sticker ID. */
+  readonly addSticker: (guildId: GuildId, sticker: Expressions.NewSticker) => Effect.Effect<string, DiscordError>
+  /** Returns the sound ID. */
+  readonly addSound: (guildId: GuildId, sound: Expressions.NewSound) => Effect.Effect<string, DiscordError>
+  readonly listExpressions: (guildId: GuildId) => Effect.Effect<ReadonlyArray<Expressions.Expression>, DiscordError>
+  readonly updateExpression: (
+    guildId: GuildId,
+    kind: Expressions.Kind,
+    id: string,
+    change: Expressions.Change,
+  ) => Effect.Effect<void, DiscordError>
+  readonly removeExpression: (guildId: GuildId, kind: Expressions.Kind, id: string) => Effect.Effect<void, DiscordError>
   /** False when no gateway connection is open. */
   readonly setPresence: (presence: Presence.Presence) => Effect.Effect<boolean>
   /** Emits after each gateway connection, when the presence must be set again. */
@@ -159,7 +173,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Discord") {}
 
-/** The only module that talks to Discord. The parts live in `Messages`, `Interactions` and `Identity`. */
+/** The only module that talks to Discord. The parts live in `Messages`, `Interactions`, `Identity` and `Expressions`. */
 const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
   const gateway = yield* DiscordGateway
@@ -191,6 +205,7 @@ const make = Effect.gen(function* () {
     ...(yield* Messages.make(me)),
     ...(yield* Interactions.make),
     ...(yield* Identity.make),
+    ...(yield* Expressions.make),
     messages: gateway
       .fromDispatch("MESSAGE_CREATE")
       .pipe(Stream.filter(Payloads.isConversational), Stream.map((data) => Payloads.toInbound(me, data))),

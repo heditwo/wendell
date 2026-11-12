@@ -1,5 +1,6 @@
 import { Context, Data, Deferred, Effect, Layer, type Option, Queue, Schema, Stream } from "effect"
 import type { Embeds } from "../discord/Embeds.ts"
+import type { Expressions } from "../discord/Expressions.ts"
 import type { Presence } from "../discord/Presence.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, MessageId, ServerName, UserId } from "../shared/Ids.ts"
@@ -26,6 +27,22 @@ export type Call = Data.TaggedEnum<{
   }
   SetModel: { readonly model: string; readonly scope: ModelScope }
   SetProfile: { readonly change: ProfileChange }
+  AddExpression: {
+    readonly kind: ExpressionKind
+    readonly name: string
+    readonly file: string
+    readonly emoji: Option.Option<string>
+    readonly description: Option.Option<string>
+    readonly volume: Option.Option<number>
+  }
+  ListExpressions: { readonly kind: Option.Option<ExpressionKind> }
+  EditExpression: {
+    readonly kind: ExpressionKind
+    /** An ID, or an exact name. */
+    readonly expression: string
+    readonly change: Expressions.Change
+  }
+  RemoveExpression: { readonly kind: ExpressionKind; readonly expression: string }
   Remember: {
     readonly about: "person" | "server"
     readonly userId: Option.Option<UserId>
@@ -50,6 +67,8 @@ export interface ProfileChange {
 }
 
 export type ModelScope = "conversation" | "default"
+
+export type ExpressionKind = Expressions.Kind
 
 export const Call = Data.taggedEnum<Call>()
 

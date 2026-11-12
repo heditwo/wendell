@@ -2,6 +2,7 @@ import { Deferred, Effect, Layer, Option, Stream } from "effect"
 import { Conversations } from "../conversations/Conversations.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
+import { ExpressionTools } from "./handlers/ExpressionTools.ts"
 import { MemoryTools } from "./handlers/MemoryTools.ts"
 import { ModelTools } from "./handlers/ModelTools.ts"
 import { ProfileTools } from "./handlers/ProfileTools.ts"
@@ -20,6 +21,7 @@ export const layer = Layer.effectDiscard(
     const modelTools = yield* ModelTools.make
     const profileTools = yield* ProfileTools.make
     const memoryTools = yield* MemoryTools.make
+    const expressionTools = yield* ExpressionTools.make
 
     const remoteOf = (request: ToolCalls.Request) =>
       Option.match(fleet.byName(request.server), {
@@ -51,6 +53,10 @@ export const layer = Layer.effectDiscard(
         UpdateTask: (call) => taskTools.updateTask(target, call),
         SetModel: (call) => modelTools.setModel(target, call),
         SetProfile: (call) => profileTools.setProfile(target, call),
+        AddExpression: (call) => expressionTools.add(target, call),
+        ListExpressions: (call) => expressionTools.list(target, call),
+        EditExpression: (call) => expressionTools.edit(target, call),
+        RemoveExpression: (call) => expressionTools.remove(target, call),
         Remember: (call) => memoryTools.remember(target, call),
         Forget: (call) => memoryTools.forget(target, call),
       })

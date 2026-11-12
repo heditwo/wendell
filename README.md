@@ -159,7 +159,7 @@ The agent can post in Discord only through these tools.
 | Tool | Use |
 | --- | --- |
 | `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping). |
-| `wendell_react` | Add an emoji reaction to a message. |
+| `wendell_react` | Add an emoji reaction to a message. Custom emojis use `name:id`. |
 | `wendell_start_task` | Move longer work into a thread, or start a sub-task. |
 | `wendell_continue_task` | Send a request to an existing task. |
 | `wendell_update_task` | Record the summary and status of a task. |
@@ -167,6 +167,12 @@ The agent can post in Discord only through these tools.
 | `wendell_remember` | Only when someone asks: keep a note about a person (`about: "person"`, `user_id`) or this server (`about: "server"`). Fields: `text`, `replaces` (a note ID to update), `expires` (a date), `message_id`. |
 | `wendell_forget` | Remove a note by `id`, or by `match` (words from the note). Both reach only the notes about people who wrote in the last 50 messages of the conversation (not Wendell or other bots), and the notes about this server. The words must match exactly one note. |
 | `wendell_set_profile` | Change Wendell's Discord profile: `username`, `avatar` and `banner` (image paths on the server, or `null` to remove), `about` ("About me"), `nickname` (in this Discord server), `status` (`online`, `idle`, `dnd`, `invisible`) and `activity` (`{ "type": "listening", "text": "the rain" }`, or `custom` for a custom status). Wendell keeps the status and activity in `.data/profile.json` and sets them again after each reconnect. Discord limits username and avatar changes to about 2 per hour. |
+| `wendell_add_expression` | Add a custom emoji, a sticker or a soundboard sound to the Discord server of the conversation. Fields: `kind` (`emoji`, `sticker` or `sound`), `name`, `file` (a path on the server, with the same rules as reply files), `emoji` (required for a sticker, optional for a sound), `description` (sticker) and `volume` (sound, 0 to 1). |
+| `wendell_list_expressions` | List the custom emojis, stickers and soundboard sounds of the Discord server, with IDs and who added them. Field: `kind` (optional). |
+| `wendell_edit_expression` | Change an emoji (`name`), a sticker (`name`, `emoji`, `description`) or a sound (`name`, `emoji`, `volume`). `expression` is the ID or the exact name. |
+| `wendell_remove_expression` | Remove an emoji, a sticker or a sound. `expression` is the ID or the exact name. |
+
+With the Create Expressions permission, Wendell can add emojis, stickers and sounds, and change or remove the ones he added. To change or remove the ones that other people added, give his role the Manage Expressions permission too.
 
 ## Slash commands
 
@@ -237,7 +243,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 
 2. Create a Discord application in the [Developer Portal](https://discord.com/developers/applications):
    - On **Bot**, click **Reset Token** and copy the token. Turn on **Message Content Intent**.
-   - On **OAuth2 → URL Generator**, select the `bot` scope and these permissions: View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Embed Links, Attach Files. Open the generated URL to add the bot to your server.
+   - On **OAuth2 → URL Generator**, select the `bot` scope and these permissions: View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Embed Links, Attach Files, Create Expressions. Open the generated URL to add the bot to your server.
    - In Discord, turn on **Settings → Advanced → Developer Mode**. You can then right-click a server, channel, role or user and select **Copy ID**.
 
 3. Copy `.env.example` to `.env` and set `DISCORD_BOT_TOKEN`.

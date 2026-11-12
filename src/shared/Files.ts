@@ -20,6 +20,7 @@ const TYPES_BY_EXTENSION: ReadonlyMap<string, string> = new Map([
   [".html", "text/html"],
   [".mp4", "video/mp4"],
   [".mp3", "audio/mpeg"],
+  [".ogg", "audio/ogg"],
 ])
 
 /** A file name that is safe in a path and in a prompt: letters, digits, dots, dashes and underscores. */

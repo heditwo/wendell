@@ -28,7 +28,9 @@ const ReplyArgs = Schema.Struct({
 
 const ReactArgs = Schema.Struct({
   message_id: MessageId.annotate({ description: "ID of the message to react to." }),
-  emoji: Schema.NonEmptyString.annotate({ description: "One Unicode emoji, for example 👍." }),
+  emoji: Schema.NonEmptyString.annotate({
+    description: "One Unicode emoji, for example 👍, or a custom emoji of this Discord server as name:id, for example wendell:123456789012345678.",
+  }),
 })
 
 const StartTaskArgs = Schema.Struct({
@@ -93,6 +95,60 @@ const SetProfileArgs = Schema.Struct({
     description: 'What the profile shows, for example { "type": "listening", "text": "the rain" } or a custom status. null clears it.',
   }),
 })
+
+const ExpressionKind = Schema.Literals(["emoji", "sticker", "sound"])
+
+const AddExpressionArgs = Schema.Struct({
+  kind: ExpressionKind.annotate({
+    description:
+      '"emoji": PNG, JPEG, GIF or WebP, at most 256 KB, ideally 128x128. ' +
+      '"sticker": PNG, APNG or GIF, at most 512 KB, exactly 320x320. ' +
+      '"sound": soundboard sound, MP3 or OGG, at most 512 KB and 5 seconds.',
+  }),
+  name: Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(32)).annotate({
+    description: "Name. For an emoji, only letters, digits and underscores, for example party_wendell. Stickers allow at most 30 characters.",
+  }),
+  file: Schema.NonEmptyString.annotate({ description: "Path of the file on this machine, absolute or relative to your working directory." }),
+  emoji: Schema.optional(Schema.NonEmptyString).annotate({
+    description:
+      "For a sticker (required): the related Unicode emoji, for example 😂. " +
+      "For a sound (optional): a Unicode emoji, or a custom emoji as name:id, that shows next to the sound.",
+  }),
+  description: Schema.optional(Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(100))).annotate({
+    description: "For a sticker: a short description.",
+  }),
+  volume: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))).annotate({
+    description: "For a sound: the volume from 0 to 1. The default is 1.",
+  }),
+})
+
+const ListExpressionsArgs = Schema.Struct({
+  kind: Schema.optional(ExpressionKind).annotate({ description: "Show only this kind. Omit it to show all." }),
+})
+
+const expressionRef = Schema.NonEmptyString.annotate({
+  description: "The ID, or the exact name. For an emoji, <:name:id> also works.",
+})
+
+const EditExpressionArgs = Schema.Struct({
+  kind: ExpressionKind,
+  expression: expressionRef,
+  name: Schema.optional(Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(32))).annotate({
+    description: "New name. For an emoji, only letters, digits and underscores. Stickers allow at most 30 characters.",
+  }),
+  emoji: Schema.optional(Schema.NullOr(Schema.NonEmptyString)).annotate({
+    description:
+      "Sticker: the new related Unicode emoji. Sound: a Unicode emoji or a custom emoji as name:id, or null to remove it.",
+  }),
+  description: Schema.optional(Schema.NullOr(Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(100)))).annotate({
+    description: "Sticker only: the new description, or null to clear it.",
+  }),
+  volume: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))).annotate({
+    description: "Sound only: the new volume from 0 to 1.",
+  }),
+})
+
+const RemoveExpressionArgs = Schema.Struct({ kind: ExpressionKind, expression: expressionRef })
 
 const RememberArgs = Schema.Struct({
   about: Schema.Literals(["person", "server"]).annotate({
@@ -241,6 +297,48 @@ export const make = (
         "For a new avatar, pass the path of an image file on the server.",
       SetProfileArgs,
       (input) => ToolCalls.Call.SetProfile({ change: input }),
+    ),
+    tool(
+      "add_expression",
+      "Add a custom emoji, a sticker or a soundboard sound to this Discord server, from a file on this machine. " +
+        "Use it when someone asks for one. Make or edit the file first, with the correct format and size. Not available in DMs.",
+      AddExpressionArgs,
+      (input) =>
+        ToolCalls.Call.AddExpression({
+          kind: input.kind,
+          name: input.name,
+          file: input.file,
+          emoji: Option.fromUndefinedOr(input.emoji),
+          description: Option.fromUndefinedOr(input.description),
+          volume: Option.fromUndefinedOr(input.volume),
+        }),
+    ),
+    tool(
+      "list_expressions",
+      "List the custom emojis, stickers and soundboard sounds of this Discord server, with their IDs and who added them. " +
+        "Not available in DMs.",
+      ListExpressionsArgs,
+      (input) => ToolCalls.Call.ListExpressions({ kind: Option.fromUndefinedOr(input.kind) }),
+    ),
+    tool(
+      "edit_expression",
+      "Change a custom emoji (name), sticker (name, emoji, description) or soundboard sound (name, emoji, volume) " +
+        "of this Discord server. Set only the fields that should change. To replace the image or the sound, " +
+        "add a new one and remove the old one. Not available in DMs.",
+      EditExpressionArgs,
+      (input) =>
+        ToolCalls.Call.EditExpression({
+          kind: input.kind,
+          expression: input.expression,
+          change: { name: input.name, emoji: input.emoji, description: input.description, volume: input.volume },
+        }),
+    ),
+    tool(
+      "remove_expression",
+      "Remove a custom emoji, sticker or soundboard sound from this Discord server. It cannot be undone. " +
+        "Use it only when someone asks for the removal. Not available in DMs.",
+      RemoveExpressionArgs,
+      (input) => ToolCalls.Call.RemoveExpression({ kind: input.kind, expression: input.expression }),
     ),
     tool(
       "remember",
