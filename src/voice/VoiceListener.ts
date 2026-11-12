@@ -4,6 +4,7 @@ import { Places } from "../conversations/Places.ts"
 import { Discord } from "../discord/Discord.ts"
 import { Routing } from "../inbound/Routing.ts"
 import { Screen } from "../inbound/Screen.ts"
+import { Room } from "../inbound/Room.ts"
 import { Recollection } from "../memory/Recollection.ts"
 import { BusyModes } from "../modes/BusyModes.ts"
 import type { ChannelId } from "../shared/Ids.ts"
@@ -39,6 +40,7 @@ export const layer = Layer.effectDiscard(
     const screen = yield* Screen.Service
     const conversations = yield* Conversations.Service
     const recollection = yield* Recollection.Service
+    const room = yield* Room.Service
     const busyModes = yield* BusyModes.Service
     const provider = yield* SpeechToText.Service
 
@@ -135,13 +137,20 @@ export const layer = Layer.effectDiscard(
         text: batch.map(({ speaker, text }) => `${speaker}: ${text}`).join("\n"),
       })
 
-      yield* conversations.deliver(conversation, [...recalled.blocks, Speech.renderBatch(batch)].join("\n\n"), {
-        expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
-        progress: waiting.length > 0,
-        lazyProgress: true,
-        trigger: Option.none(),
-        busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
-      })
+      const overheard = yield* room.take(conversation)
+
+      yield* conversations.deliver(
+        conversation,
+        [...recalled.blocks, ...overheard.blocks, Speech.renderBatch(batch)].join("\n\n"),
+        {
+          expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
+          progress: waiting.length > 0,
+          lazyProgress: true,
+          trigger: Option.none(),
+          busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
+        },
+        overheard.images,
+      )
       yield* recalled.delivered
       yield* Effect.logInfo("Delivered speech", { server: conversation.remote.name, channelId, count: batch.length })
     })

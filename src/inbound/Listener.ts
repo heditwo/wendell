@@ -12,6 +12,7 @@ import type { ChannelId } from "../shared/Ids.ts"
 import { Attachments } from "./Attachments.ts"
 import { Inbound } from "./Inbound.ts"
 import { Recent } from "./Recent.ts"
+import { Room } from "./Room.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
 import { Transcriber } from "../transcription/Transcriber.ts"
@@ -42,6 +43,7 @@ export const layer = Layer.effectDiscard(
     const transcriber = yield* Transcriber.Service
     const busyModes = yield* BusyModes.Service
     const recollection = yield* Recollection.Service
+    const room = yield* Room.Service
     const capture = yield* Capture.Service
     const voice = yield* Voice.Service
 
@@ -89,7 +91,7 @@ export const layer = Layer.effectDiscard(
 
       const routeTaken = verdict.skip ? Routing.Route.Ignored() : candidate
 
-      if (!message.authorIsBot && Routing.Route.$is("Ignored")(routeTaken)) yield* recollection.overheard(message)
+      if (!message.authorIsBot && Routing.Route.$is("Ignored")(routeTaken)) yield* room.overheard(message)
 
       return { message, place, route: routeTaken, confident: verdict.confident } satisfies Item
     })
@@ -143,11 +145,12 @@ export const layer = Layer.effectDiscard(
 
       yield* Effect.forkDetach(typeAtOnce)
 
+      const overheard = yield* room.take(conversation)
       const inCall = yield* voice.inCall(channelId)
 
       yield* conversations.deliver(
         conversation,
-        [...recalled.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
+        [...recalled.blocks, ...overheard.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
@@ -157,7 +160,7 @@ export const layer = Layer.effectDiscard(
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
           busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
         },
-        routed.flatMap(({ files }) => Attachments.images(files)),
+        [...overheard.images, ...routed.flatMap(({ files }) => Attachments.images(files))],
       )
       yield* recalled.delivered
       yield* capture.touch(conversation, first.message.id)

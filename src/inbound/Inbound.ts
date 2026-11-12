@@ -75,7 +75,7 @@ export const plainText = (message: Message) =>
     .filter((part) => part.trim() !== "")
     .join(" ")
 
-const renderFile: (note: FileNote) => string = FileNote.$match({
+export const renderFile: (note: FileNote) => string = FileNote.$match({
   Saved: ({ name, type, size, path, image }) =>
     `<attachment name="${attribute(name)}" type="${attribute(type)}" size="${Files.formatSize(size)}" path="${attribute(path)}"` +
     `${image ? ' image="attached to this prompt"' : ""} />`,

@@ -14,6 +14,7 @@ import { Profile } from "./discord/Profile.ts"
 import { Attachments } from "./inbound/Attachments.ts"
 import { Listener } from "./inbound/Listener.ts"
 import { Recent } from "./inbound/Recent.ts"
+import { Room } from "./inbound/Room.ts"
 import { Screen } from "./inbound/Screen.ts"
 import { SpeechToText } from "./transcription/SpeechToText.ts"
 import { Transcriber } from "./transcription/Transcriber.ts"
@@ -64,7 +65,7 @@ const Services = Layer.mergeAll(
 
 // Long-running loops that react to Discord and OpenCode events.
 const Workers = Layer.mergeAll(Listener.layer, VoiceListener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
-  Layer.provide(Places.layer),
+  Layer.provide(Layer.mergeAll(Places.layer, Room.layer)),
 )
 
 const Main = Workers.pipe(

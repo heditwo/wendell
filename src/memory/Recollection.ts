@@ -1,18 +1,13 @@
-import { Clock, Context, Duration, Effect, HashMap, Layer, Option, Ref, Schedule, Schema, Stream } from "effect"
+import { Context, Duration, Effect, Layer, Option, Ref, Schedule, Schema, Stream } from "effect"
 import path from "node:path"
 import { Settings } from "../config/Settings.ts"
-import { Inbound } from "../inbound/Inbound.ts"
 import { Decisions } from "../opencode/Decisions.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
-import type { ChannelId, UserId } from "../shared/Ids.ts"
+import type { UserId } from "../shared/Ids.ts"
 import { JsonStore } from "../shared/JsonStore.ts"
 import { attribute, escape } from "../shared/Text.ts"
 import { Memory } from "./Memory.ts"
-
-const ROOM_MESSAGES = 8
-const ROOM_WINDOW = Duration.minutes(15)
-const ROOM_MESSAGE_CHARS = 400
 
 const JUDGE_TIMEOUT = Duration.seconds(4)
 const MAX_CANDIDATES = 60
@@ -46,11 +41,9 @@ export interface Moment {
 }
 
 export interface Interface {
-  /** A message that Wendell did not get, kept as room context for his next turn in that channel. */
-  readonly overheard: (message: Inbound.Message) => Effect.Effect<void>
   /**
    * What to put in front of the next batch: the profiles of people this conversation has not seen yet,
-   * the facts that the messages touch, and the messages overheard since its last turn.
+   * and the facts that the messages touch.
    * Nothing is recorded as shown yet: the caller must run `delivered` after the prompt was delivered,
    * and must not run it when delivery failed, so the same notes come up again in the next batch.
    */
@@ -124,7 +117,6 @@ export const layer = Layer.effect(
     const settings = yield* Settings.Service
     const fleet = yield* Fleet.Service
     const store = yield* JsonStore.makeOrReset(StoredFile, path.join(settings.dataDirectory, "recall.json"), { conversations: {} })
-    const room = yield* Ref.make(HashMap.empty<ChannelId, ReadonlyArray<{ readonly at: number; readonly line: string }>>())
 
     const seenBy = (key: string) => store.get.pipe(Effect.map((current) => current.conversations[key] ?? unseen))
 
@@ -188,19 +180,6 @@ export const layer = Layer.effect(
         }).pipe(Effect.forkScoped),
       { discard: true },
     )
-
-    const overheard = Effect.fn("Recollection.overheard")(function* (message: Inbound.Message) {
-      const at = yield* Clock.currentTimeMillis
-      const text = Inbound.plainText(message).slice(0, ROOM_MESSAGE_CHARS)
-
-      if (text.trim() === "") return
-
-      const line = `${attribute(message.authorName)}: ${escape(text)}`
-
-      yield* Ref.update(room, (all) =>
-        HashMap.set(all, message.channelId, [...Option.getOrElse(HashMap.get(all, message.channelId), () => []), { at, line }].slice(-ROOM_MESSAGES)),
-      )
-    })
 
     /** The facts that the decision model finds relevant to the messages. None on any failure. */
     const judge = Effect.fn("Recollection.judge")(function* (moment: Moment, candidates: ReadonlyArray<Candidate>) {
@@ -293,35 +272,16 @@ export const layer = Layer.effect(
     })
 
     const before = Effect.fn("Recollection.before")(function* (moment: Moment) {
-      const recalled = yield* remembered(moment).pipe(
+      return yield* remembered(moment).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("Could not recall notes", { cause }).pipe(
             Effect.as<Recall>({ blocks: [], delivered: Effect.void }),
           ),
         ),
       )
-
-      const now = yield* Clock.currentTimeMillis
-
-      const overheardLines = yield* Ref.modify(room, (all) => [
-        Option.getOrElse(HashMap.get(all, moment.place.channelId), () => [])
-          .filter(({ at }) => now - at <= Duration.toMillis(ROOM_WINDOW))
-          .map(({ line }) => line),
-        HashMap.remove(all, moment.place.channelId),
-      ])
-
-      const context =
-        overheardLines.length === 0
-          ? []
-          : [
-              '<room_context note="Messages in this channel since your last turn that were not for you, oldest first. Context only; do not answer them.">\n' +
-                `${overheardLines.join("\n")}\n</room_context>`,
-            ]
-
-      return { blocks: [...recalled.blocks, ...context], delivered: recalled.delivered } satisfies Recall
     })
 
-    return Service.of({ overheard, before })
+    return Service.of({ before })
   }),
 )
 
