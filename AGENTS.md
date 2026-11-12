@@ -80,6 +80,8 @@ flowchart LR
   MEM[memory/] --> L
   TA[tasks/] --> C
   MO[modes/] --> A
+  V[voice/] -- utterances --> C
+  W -- speech --> V
   MO --> L
   CFG[config/] --> F
 ```
@@ -91,7 +93,7 @@ Where to find things:
 | `cli/` | `bun run doctor`, `pair` and `unpair`. |
 | `config/` | Environment settings (`Settings.ts`), `wendell.json` (`WendellConfig.ts`), paired servers (`Servers.ts`, `.data/servers.json`) and pairing links. |
 | `shared/` | IDs, `JsonStore.ts` (one JSON file in `.data/`, read at startup, written after each change), text escaping and file name helpers. |
-| `discord/` | The Discord adapter. `Discord.ts` is the service and the only module that talks to Discord (dfx). Its parts: `Messages.ts`, `Interactions.ts`, `Identity.ts` (profile and presence), `Expressions.ts` (custom emojis, stickers and soundboard sounds) and `Payloads.ts` (gateway payloads to Wendell's types). Also `Embeds.ts`, `Presence.ts` and `Profile.ts` (the kept presence). |
+| `discord/` | The Discord adapter. `Discord.ts` is the service and the only module that talks to Discord (dfx). Its parts: `Messages.ts`, `Interactions.ts`, `Identity.ts` (profile and presence), `Expressions.ts` (custom emojis, stickers and soundboard sounds), `VoiceStates.ts` (who is in which voice channel, and the voice gateway events) and `Payloads.ts` (gateway payloads to Wendell's types). Also `Embeds.ts`, `Presence.ts` and `Profile.ts` (the kept presence). |
 | `discord/commands/` | One module for each slash command. `Command.ts` is the shape of a command, `Commands.ts` registers and answers them. |
 | `inbound/` | Incoming messages: `Listener.ts` routes (`Routing.ts`), screens (`Screen.ts`), batches per channel and delivers. `Inbound.ts` renders messages for the prompt. `Attachments.ts` saves incoming files, `Recent.ts` keeps recent messages for tools. |
 | `conversations/` | `Conversations.ts` delivers prompts. `Sessions.ts` creates and prepares sessions, `Briefing.ts` builds the context entry, `TurnWatcher.ts` follows turns. `Places.ts` finds the conversation of a message. `Activity.ts` records when Wendell spoke. |
@@ -101,6 +103,7 @@ Where to find things:
 | `tasks/` | Task threads and sub-tasks (`.data/tasks.json`). |
 | `approvals/` | Permission requests (`Approvals.ts`) and the reviewer (`Reviewer.ts`). |
 | `modes/` | Per-conversation settings: `ConversationSetting.ts`, used by `ApprovalModes.ts` (`/auto`) and `BusyModes.ts` (`/busy`). |
+| `voice/` | Voice calls: `Voice.ts` (the sidecar process, connections, speaking), `VoiceListener.ts` (speech to conversations), `Protocol.ts` (the messages of `voice/PROTOCOL.md`), `Speech.ts` (text for and from speech), `VoiceConfig.ts`, `VoiceCheck.ts` (doctor). The sidecar itself is the Node program in the top-level `voice/` folder. |
 | `memory/` | Notes about people and servers (`Memory.ts`), their capture in the background (`Capture.ts`) and what goes in front of each batch (`Recollection.ts`). |
 
 Details:
@@ -117,6 +120,7 @@ Details:
 - `TurnWatcher.compactIfFull` compacts a session after a turn when its context (`ContextSize.of`: input, output and cache tokens of the last assistant message) reaches the conversation's limit (`modes/ContextLimits.ts`, set with `/context`, else `contextLimit`, default 256k), so every model gets one fixed limit. OpenCode's per-model automatic compaction stays as a backstop.
 - `Activity.ts` records when Wendell last spoke in each conversation (`.data/activity.json`), so follow-ups still work after a restart.
 - `transcription/`: `Transcriber.ts` finds audio attachments, downloads them, caches results and runs before routing, so spoken text can address Wendell. It never fails. `Provider.ts` is the provider contract (`transcribe`, `check`); `SpeechToText.ts` picks the provider from `transcription.provider` (`command` → `CommandProvider.ts`, `openai` → `OpenAIProvider.ts`, `off`). Each provider owns its `Config` schema; `TranscriptionConfig.ts` joins them into the union that `WendellConfig` uses. To add a provider: a module with `Config` and `make`, one entry in that union, one case in `SpeechToText.layer`. Do not hard-code a tool.
+- `voice/`: `Voice.ts` runs the sidecar (`voice.sidecar`, default `node voice/sidecar.ts`) as a child process with NDJSON on stdin and stdout, and starts it again with backoff when it stops. After a restart it joins the connected channels again. It forwards Wendell's own `VOICE_STATE_UPDATE` and the `VOICE_SERVER_UPDATE` of connected guilds, and sends only op 4 gateway payloads for the same guild from the sidecar (`Discord.sendVoiceState`). It leaves a channel 30 seconds after the last person left (`Discord.voiceMembers`, which `discord/VoiceStates.ts` keeps from `GUILD_CREATE` and `VOICE_STATE_UPDATE`). `VoiceListener.ts` transcribes each utterance with `SpeechToText`, drops bots and Wendell, routes it with the `Call` route (`Routing.ts`; the decision model sees the last lines of the call from `Voice.callLines`, through `Screen.screenTranscript`), batches per channel and delivers to the conversation of the voice channel's chat (same ID as the voice channel). Utterances have no Discord message ID: no 👀, `reply_to`, reactions, `Recent` entries or capture markers. `Speech.callNote` tells the agent that its replies are spoken; the Listener adds it to typed messages in the chat of a call too. `wendell_reply` and the silence fallback in `TurnWatcher.ts` call `Voice.speak`, which speaks `Speech.readable` (no code, links, markdown or emoji tags) only when Wendell is connected to that channel. `wendell_join_voice` and `wendell_leave_voice` are in `handlers/VoiceTools.ts`.
 - New feature settings follow the same rule: the feature owns its schema, `WendellConfig` only assembles them. (The mode schemas, `ApprovalMode`, `BusyMode` and `ContextLimit`, still live in `WendellConfig`.)
 - `Discord.post` (`Messages.ts`) sends files as its own multipart request, because dfx sends `payload_json` as a nameless Blob that Bun turns into a file. `allowed_mentions` is always `parse: []`, plus at most one user from `mention`.
 - `Embeds.ts` validates embeds against Discord's limits (10 embeds, 6000 characters, field limits).

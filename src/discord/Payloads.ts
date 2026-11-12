@@ -13,6 +13,8 @@ const COMMAND_CHAT_INPUT = 1
 export const OPTION_STRING = 3
 const COMPONENT_BUTTON = 2
 
+const GUILD_VOICE = 2
+
 const isThreadChannel = (channel: DiscordTypes.APIChannel): channel is DiscordTypes.APIThreadChannel =>
   channel.type === 10 || channel.type === 11 || channel.type === 12
 
@@ -20,8 +22,8 @@ export const describeChannel = (channel: DiscordTypes.APIChannel): ChannelInfo =
   const guildId = "guild_id" in channel ? Option.fromNullishOr(channel.guild_id).pipe(Option.map(GuildId.make)) : Option.none()
 
   return isThreadChannel(channel)
-    ? { isThread: true, parentId: Option.fromNullishOr(channel.parent_id).pipe(Option.map(ChannelId.make)), guildId }
-    : { isThread: false, parentId: Option.none(), guildId }
+    ? { isThread: true, isVoice: false, parentId: Option.fromNullishOr(channel.parent_id).pipe(Option.map(ChannelId.make)), guildId }
+    : { isThread: false, isVoice: channel.type === GUILD_VOICE, parentId: Option.none(), guildId }
 }
 
 export const displayName = (user: DiscordTypes.UserResponse) => user.global_name ?? user.username

@@ -109,6 +109,55 @@ For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lin
 - For structured results, the agent can add `embeds`. An embed image can show an attached file with `attachment://<file name>`.
 - To make an image, the agent uses OpenCode's `image_generate` tool. The server must have an enabled image model, and before OpenCode 2.2.2 also `experimental.image_generate` in its config. Wendell looks for the tool when he connects, and again when the server's config, models or providers change. Without the tool, he tells people that he cannot make images on that server. The tool runs in the background, and the agent posts the image when it is ready.
 
+## Voice calls
+
+Wendell can join a voice channel in a Discord server. He hears what people say there and speaks his replies.
+
+- Ask him to join, for example "Wendell, join my call". The agent calls `wendell_join_voice` with your user ID, or with a voice channel ID.
+- A Discord voice channel has its own text chat with the same ID. The call and this chat are one conversation. When you ask Wendell to join from another channel, he continues in the voice channel's chat.
+- Each thing that a person says goes to the speech-to-text provider of [Voice messages](#voice-messages). Wendell ignores bots. "Wendell, …" at the start or end addresses him. The decision model examines all other speech, because Wendell takes part in the call and speech recognition often gets his name wrong. Speech of a few seconds goes to the agent in one batch, as for messages.
+- The agent gets the speech marked as speech recognition, with the speaker's name and user ID. Speech has no message ID, so Wendell does not react to it, reply to it or show 👀.
+- When Wendell is in the call, what he posts in the voice channel's chat is also spoken. Wendell removes code blocks, links, markdown and emojis before he speaks, and says names for mentions. When nothing readable remains, he says nothing. The text stays in the chat.
+- When someone talks while Wendell speaks, he stops speaking.
+- He leaves when you ask (`wendell_leave_voice`), or 30 seconds after the last person leaves the channel.
+- Discord bots cannot join DM calls or group calls.
+- Wendell cannot tell people from bots when someone talks over him: any speech stops his speech.
+
+### Set up voice
+
+1. Turn on transcription (see [Voice messages](#voice-messages)). Without it, Wendell can speak in a call but does not hear it.
+2. Run a speech server with an OpenAI-compatible `POST /v1/audio/speech` endpoint that streams raw PCM (24 kHz, mono, 16-bit) and a `GET /health` endpoint, on the machine that runs Wendell.
+3. Install the voice sidecar, a Node.js 24 program that makes the voice connections:
+
+   ```sh
+   cd voice && npm ci
+   ```
+
+4. Add `voice` to `wendell.json`. Voice is on when this key is present. All fields are optional:
+
+   ```json
+   {
+     "voice": {
+       "tts": { "url": "http://127.0.0.1:8880", "voice": "verity" },
+       "vad": { "silenceMs": 700, "minSpeechMs": 400, "maxUtteranceMs": 15000 }
+     }
+   }
+   ```
+
+   | Field | Meaning |
+   | --- | --- |
+   | `tts.url` | Base URL of the speech server. Default: `http://127.0.0.1:8880`. |
+   | `tts.voice` | Voice of the speech server. Default: `verity`. |
+   | `vad.silenceMs` | Silence that ends one thing that a person says. Default: `700`. |
+   | `vad.minSpeechMs` | Shorter speech is ignored. Default: `400`. |
+   | `vad.maxUtteranceMs` | Longer speech is cut into parts. Default: `15000`. |
+   | `sidecar` | The command that starts the sidecar, from the repository root. Default: `["node", "voice/sidecar.ts"]`. |
+
+5. Give Wendell's role the **Connect** and **Speak** permissions in the voice channels. Wendell uses the voice states intent, which is not privileged, so the Developer Portal needs no change.
+6. Run `bun run doctor`. It checks that `node` runs, that `voice/node_modules` exists and that the speech server answers on `/health`.
+
+Wendell starts the sidecar as a child process and starts it again when it stops. The sidecar does not get the bot token: Wendell sends the voice events of the Discord gateway to it. `voice/PROTOCOL.md` describes the messages between them.
+
 ## Memory
 
 Wendell keeps short notes about people and about each Discord server. The agent gets only the notes that apply to the current messages.
@@ -171,6 +220,8 @@ The agent can post in Discord only through these tools.
 | `wendell_list_expressions` | List the custom emojis, stickers and soundboard sounds of the Discord server, with IDs and who added them. Field: `kind` (optional). |
 | `wendell_edit_expression` | Change an emoji (`name`), a sticker (`name`, `emoji`, `description`) or a sound (`name`, `emoji`, `volume`). `expression` is the ID or the exact name. |
 | `wendell_remove_expression` | Remove an emoji, a sticker or a sound. `expression` is the ID or the exact name. |
+| `wendell_join_voice` | Join a voice channel of the Discord server: the channel of `user_id`, or `channel_id`. See [Voice calls](#voice-calls). |
+| `wendell_leave_voice` | Leave the voice channel of the Discord server. |
 
 With the Create Expressions permission, Wendell can add emojis, stickers and sounds, and change or remove the ones he added. To change or remove the ones that other people added, give his role the Manage Expressions permission too.
 
@@ -243,7 +294,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 
 2. Create a Discord application in the [Developer Portal](https://discord.com/developers/applications):
    - On **Bot**, click **Reset Token** and copy the token. Turn on **Message Content Intent**.
-   - On **OAuth2 → URL Generator**, select the `bot` scope and these permissions: View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Embed Links, Attach Files, Create Expressions. Open the generated URL to add the bot to your server.
+   - On **OAuth2 → URL Generator**, select the `bot` scope and these permissions: View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Add Reactions, Embed Links, Attach Files, Create Expressions, and for [voice calls](#voice-calls) Connect and Speak. Open the generated URL to add the bot to your server.
    - In Discord, turn on **Settings → Advanced → Developer Mode**. You can then right-click a server, channel, role or user and select **Copy ID**.
 
 3. Copy `.env.example` to `.env` and set `DISCORD_BOT_TOKEN`.
@@ -313,6 +364,7 @@ Give Wendell a directory of his own on each server, such as `~/wendell`. Do not 
 | `memory.capture` | `"background"` (default) or `"off"`. See [Memory](#memory). |
 | `memory.captureModel` | Model for background capture, as `provider/model` or `provider/model#variant`. Default: the server's default model (set with `/model`, else `servers.<name>.model`). The server must offer the model, and its provider must not be blocked. If no such model is set, capture does not run. Use a small model. |
 | `transcription` | The speech-to-text provider for voice messages: `command`, `openai` or `off` (default). See [Media](#media). |
+| `voice` | Voice calls. Off when the key is not present. See [Set up voice](#set-up-voice). |
 | `contextLimit` | Context size in tokens at which Wendell compacts a session, for every model. Default: `256000`. `0` leaves compaction to OpenCode alone. |
 | `servers.<name>.contextLimit` | The same, for one server. |
 | `hideSessions` | Archive Wendell's sessions, so the OpenCode desktop does not list them. Default: `true`. With `false`, Wendell does not archive or unarchive sessions. |

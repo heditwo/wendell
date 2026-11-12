@@ -181,6 +181,15 @@ const ForgetArgs = Schema.Struct({
   }),
 })
 
+const JoinVoiceArgs = Schema.Struct({
+  user_id: Schema.optional(UserId).annotate({
+    description: "Join the voice channel that this person is in, usually the person who asked (author_id in messages).",
+  }),
+  channel_id: Schema.optional(ChannelId).annotate({ description: "Or: the ID of a voice channel in this Discord server." }),
+})
+
+const LeaveVoiceArgs = Schema.Struct({})
+
 const inputSchema = (schema: Schema.Top) => Schema.toJsonSchemaDocument(schema).schema
 
 const text = (value: string): ClientMcpToolResult => ({ content: [{ type: "text", text: value }] })
@@ -361,6 +370,23 @@ export const make = (
       "Remove a note from your memory when someone asks you to forget it, or when a recalled note turns out to be wrong.",
       ForgetArgs,
       (input) => ToolCalls.Call.Forget({ id: Option.fromUndefinedOr(input.id), match: Option.fromUndefinedOr(input.match) }),
+    ),
+    tool(
+      "join_voice",
+      "Join a voice channel of this Discord server when someone asks you to, so that you hear what people say there " +
+        "and your replies are spoken aloud. Give user_id or channel_id. Not available in DMs.",
+      JoinVoiceArgs,
+      (input) =>
+        ToolCalls.Call.JoinVoice({
+          userId: Option.fromUndefinedOr(input.user_id),
+          channelId: Option.fromUndefinedOr(input.channel_id),
+        }),
+    ),
+    tool(
+      "leave_voice",
+      "Leave the voice channel that you are in on this Discord server. You also leave by yourself when nobody else is in it.",
+      LeaveVoiceArgs,
+      () => ToolCalls.Call.LeaveVoice(),
     ),
   ]
 }

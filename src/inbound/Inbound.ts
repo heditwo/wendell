@@ -88,6 +88,7 @@ const goalContext: (route: Routing.Route) => Option.Option<string> = Routing.Rou
   Named: () => Option.none(),
   Spoken: () => Option.none(),
   Task: () => Option.none(),
+  Call: () => Option.none(),
   FollowUp: () => Option.none(),
   Ignored: () => Option.none(),
   Watched: ({ goal }) => Option.some(WendellConfig.describeGoal(goal)),

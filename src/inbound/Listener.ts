@@ -15,6 +15,8 @@ import { Recent } from "./Recent.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
 import { Transcriber } from "../transcription/Transcriber.ts"
+import { Speech } from "../voice/Speech.ts"
+import { Voice } from "../voice/Voice.ts"
 
 const MAX_BATCH = 20
 const GROUP_BUFFER = 64
@@ -41,6 +43,7 @@ export const layer = Layer.effectDiscard(
     const busyModes = yield* BusyModes.Service
     const recollection = yield* Recollection.Service
     const capture = yield* Capture.Service
+    const voice = yield* Voice.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -74,6 +77,7 @@ export const layer = Layer.effectDiscard(
         named: !quiet && Routing.mentionsName(Inbound.words(message)),
         spoken: !quiet && Option.isSome(message.transcript),
         inTask: Option.isSome(place.task),
+        inCall: false,
         following: quiet ? false : yield* following(message.channelId, place),
         goal: quiet ? Option.none() : place.goal,
       })
@@ -139,9 +143,11 @@ export const layer = Layer.effectDiscard(
 
       yield* Effect.forkDetach(typeAtOnce)
 
+      const inCall = yield* voice.inCall(channelId)
+
       yield* conversations.deliver(
         conversation,
-        [...recalled.blocks, Inbound.renderBatch(routed)].join("\n\n"),
+        [...recalled.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,

@@ -3,12 +3,14 @@ import { Activity } from "../../conversations/Activity.ts"
 import { Discord } from "../../discord/Discord.ts"
 import { Embeds } from "../../discord/Embeds.ts"
 import { ToolCalls } from "../ToolCalls.ts"
+import { Voice } from "../../voice/Voice.ts"
 import { Uploads } from "../Uploads.ts"
 
 export const make = Effect.gen(function* () {
   const discord = yield* Discord.Service
   const activity = yield* Activity.Service
   const uploads = yield* Uploads.Service
+  const voice = yield* Voice.Service
 
   const reply = Effect.fn("ReplyTools.reply")(function* (
     { remote, channelId }: ToolCalls.Target,
@@ -48,6 +50,7 @@ export const make = Effect.gen(function* () {
     )
 
     yield* activity.spoke(channelId)
+    yield* voice.speak(channelId, text)
 
     return `Posted message ${messageId}${attached.length === 0 ? "" : ` with ${attached.map((upload) => upload.name).join(", ")}`}.`
   })

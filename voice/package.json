@@ -1,0 +1,24 @@
+{
+  "name": "wendell-voice",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node sidecar.ts",
+    "check": "tsc -p tsconfig.json",
+    "report": "node -e \"console.log(require('@discordjs/voice').generateDependencyReport())\""
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@discordjs/opus": "^0.11.0",
+    "@discordjs/voice": "^0.19.2"
+  },
+  "allowScripts": {
+    "@discordjs/opus@0.11.0": true
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3"
+  }
+}

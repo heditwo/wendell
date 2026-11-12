@@ -8,6 +8,7 @@ import { ModelTools } from "./handlers/ModelTools.ts"
 import { ProfileTools } from "./handlers/ProfileTools.ts"
 import { ReplyTools } from "./handlers/ReplyTools.ts"
 import { TaskTools } from "./handlers/TaskTools.ts"
+import { VoiceTools } from "./handlers/VoiceTools.ts"
 import { ToolCalls } from "./ToolCalls.ts"
 
 /** Answers the client MCP tool calls from the queue, each with the handler for its kind. */
@@ -22,6 +23,7 @@ export const layer = Layer.effectDiscard(
     const profileTools = yield* ProfileTools.make
     const memoryTools = yield* MemoryTools.make
     const expressionTools = yield* ExpressionTools.make
+    const voiceTools = yield* VoiceTools.make
 
     const remoteOf = (request: ToolCalls.Request) =>
       Option.match(fleet.byName(request.server), {
@@ -59,6 +61,8 @@ export const layer = Layer.effectDiscard(
         RemoveExpression: (call) => expressionTools.remove(target, call),
         Remember: (call) => memoryTools.remember(target, call),
         Forget: (call) => memoryTools.forget(target, call),
+        JoinVoice: (call) => voiceTools.join(target, call),
+        LeaveVoice: () => voiceTools.leave(target),
       })
     })
 

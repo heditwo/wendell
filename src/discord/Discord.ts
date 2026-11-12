@@ -12,11 +12,14 @@ import { Interactions } from "./Interactions.ts"
 import { Messages } from "./Messages.ts"
 import { Payloads } from "./Payloads.ts"
 import type { Presence } from "./Presence.ts"
+import { VoiceStates } from "./VoiceStates.ts"
 
 export { DiscordError } from "./DiscordError.ts"
 
 export interface ChannelInfo {
   readonly isThread: boolean
+  /** A guild voice channel. Its text chat has the same ID. */
+  readonly isVoice: boolean
   readonly parentId: Option.Option<ChannelId>
   readonly guildId: Option.Option<GuildId>
 }
@@ -102,6 +105,41 @@ export interface Outgoing {
   readonly mention: Option.Option<UserId>
 }
 
+export interface Member {
+  readonly name: string
+  readonly isBot: boolean
+}
+
+/** A person in a voice channel. */
+export interface VoiceMember extends Member {
+  readonly guildId: GuildId
+  readonly userId: UserId
+  readonly channelId: ChannelId
+}
+
+export interface VoiceStateChange {
+  readonly guildId: GuildId
+  readonly userId: UserId
+  /** None when the user left voice. */
+  readonly channelId: Option.Option<ChannelId>
+  /** The raw `VOICE_STATE_UPDATE` payload. */
+  readonly data: unknown
+}
+
+export interface VoiceGatewayEvent {
+  readonly guildId: GuildId
+  /** The raw payload. */
+  readonly data: unknown
+}
+
+export interface VoiceStateUpdate {
+  readonly guildId: GuildId
+  /** None leaves voice. */
+  readonly channelId: Option.Option<ChannelId>
+  readonly selfMute: boolean
+  readonly selfDeaf: boolean
+}
+
 /** Built field by field, so it stays mutable. */
 export interface ProfileUpdate {
   username?: string
@@ -110,6 +148,8 @@ export interface ProfileUpdate {
 }
 
 export interface Interface {
+  /** Wendell's own user ID. */
+  readonly me: UserId
   readonly messages: Stream.Stream<Inbound.Message>
   readonly buttonPresses: Stream.Stream<ButtonPress>
   readonly commands: Stream.Stream<CommandCall>
@@ -169,14 +209,25 @@ export interface Interface {
   readonly createThread: (channelId: ChannelId, name: string) => Effect.Effect<ChannelId, DiscordError>
   /** Replaces the pressed message's text and removes its buttons. */
   readonly answerPress: (press: ButtonPress, text: string) => Effect.Effect<void, DiscordError>
+  readonly member: (guildId: GuildId, userId: UserId) => Effect.Effect<Member, DiscordError>
+  readonly voiceChannelOf: (guildId: GuildId, userId: UserId) => Effect.Effect<Option.Option<ChannelId>>
+  readonly voiceMembers: (channelId: ChannelId) => Effect.Effect<ReadonlyArray<VoiceMember>>
+  /** Sends a voice state update (gateway opcode 4). False when no gateway connection is open. */
+  readonly sendVoiceState: (update: VoiceStateUpdate) => Effect.Effect<boolean>
+  readonly voiceStateChanges: Stream.Stream<VoiceStateChange>
+  readonly voiceServers: Stream.Stream<VoiceGatewayEvent>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Discord") {}
 
-/** The only module that talks to Discord. The parts live in `Messages`, `Interactions`, `Identity` and `Expressions`. */
+/**
+ * The only module that talks to Discord. The parts live in `Messages`, `Interactions`, `Identity`, `Expressions`
+ * and `VoiceStates`.
+ */
 const make = Effect.gen(function* () {
   const rest = yield* DiscordREST
   const gateway = yield* DiscordGateway
+  const voiceStates = yield* VoiceStates.make
 
   const me = yield* rest.getMyUser().pipe(
     discordError("Discord.me"),
@@ -206,6 +257,8 @@ const make = Effect.gen(function* () {
     ...(yield* Interactions.make),
     ...(yield* Identity.make),
     ...(yield* Expressions.make),
+    ...voiceStates,
+    me,
     messages: gateway
       .fromDispatch("MESSAGE_CREATE")
       .pipe(Stream.filter(Payloads.isConversational), Stream.map((data) => Payloads.toInbound(me, data))),
@@ -221,7 +274,7 @@ const make = Effect.gen(function* () {
   })
 })
 
-const intents = Intents.fromList(["Guilds", "GuildMessages", "MessageContent", "DirectMessages"])
+const intents = Intents.fromList(["Guilds", "GuildMessages", "MessageContent", "DirectMessages", "GuildVoiceStates"])
 
 const dfxLayer = DiscordLive.pipe(
   Layer.provide(

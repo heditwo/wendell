@@ -6,6 +6,7 @@ import type { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
 import type { ChannelId, MessageId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
+import { Voice } from "../voice/Voice.ts"
 import { Activity } from "./Activity.ts"
 import { ContextSize } from "./ContextSize.ts"
 import type { Conversation, Turn } from "./Conversation.ts"
@@ -28,6 +29,7 @@ export const make = (sessions: Sessions.Interface) =>
     const contextLimits = yield* ContextLimits.Service
     const activity = yield* Activity.Service
     const tasks = yield* Tasks.Service
+    const voice = yield* Voice.Service
     const scope = yield* Effect.scope
     const ours = yield* Ref.make(HashSet.empty<SessionMessage.ID>())
     const watching = yield* Ref.make(HashMap.empty<string, number>())
@@ -282,6 +284,7 @@ export const make = (sessions: Sessions.Interface) =>
 
       yield* discord.send(channelId, text.value, Option.none())
       yield* activity.spoke(channelId)
+      yield* voice.speak(channelId, text.value)
       yield* Effect.logInfo("Posted the turn text because Wendell did not call wendell_reply", {
         server: conversation.remote.name,
         channelId,

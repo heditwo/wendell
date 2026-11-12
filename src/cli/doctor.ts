@@ -6,6 +6,7 @@ import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 import { SpeechToText } from "../transcription/SpeechToText.ts"
 import { Fleet } from "../opencode/Fleet.ts"
+import { VoiceCheck } from "../voice/VoiceCheck.ts"
 
 const check = (label: string, ok: boolean, detail: string) => Console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${detail}`)
 
@@ -132,6 +133,7 @@ const program = Effect.gen(function* () {
   )
   yield* Effect.forEach(paired, checkServer, { discard: true })
   yield* checkTranscription
+  yield* checkVoice
 })
 
 const checkTranscription = Effect.gen(function* () {
@@ -142,6 +144,19 @@ const checkTranscription = Effect.gen(function* () {
   yield* check("transcription", true, provider.value.name)
 
   const results = yield* provider.value.check
+
+  yield* Effect.forEach(results, (result) => check(result.label, result.ok, result.detail), { discard: true })
+})
+
+const checkVoice = Effect.gen(function* () {
+  const config = yield* WendellConfig.Service
+  const provider = yield* SpeechToText.Service
+
+  if (Option.isNone(config.voice)) return yield* check("voice", true, "off")
+
+  yield* check("voice", Option.isSome(provider), Option.isSome(provider) ? "on" : "on, but transcription is off, so Wendell does not hear calls")
+
+  const results = yield* VoiceCheck.checks(config.voice.value)
 
   yield* Effect.forEach(results, (result) => check(result.label, result.ok, result.detail), { discard: true })
 })

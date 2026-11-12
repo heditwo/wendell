@@ -29,6 +29,8 @@ import { Tasks } from "./tasks/Tasks.ts"
 import { ToolCalls } from "./tools/ToolCalls.ts"
 import { ToolWorker } from "./tools/ToolWorker.ts"
 import { Uploads } from "./tools/Uploads.ts"
+import { Voice } from "./voice/Voice.ts"
+import { VoiceListener } from "./voice/VoiceListener.ts"
 
 // The runtime, environment settings and the in-process tool call queue.
 const Platform = Layer.mergeAll(BunServices.layer, BunHttpClient.layer, Settings.layer, Recent.layer, ToolCalls.layer)
@@ -39,8 +41,8 @@ const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, A
 // The two outside connections: Discord and the paired OpenCode servers.
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-// Model choices and long-term memory, which most services read.
-const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer, SpeechToText.layer)
+// Model choices, long-term memory and voice connections, which most services read.
+const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer, SpeechToText.layer, Voice.layer)
 
 const Services = Layer.mergeAll(
   // Sessions and turns
@@ -61,7 +63,7 @@ const Services = Layer.mergeAll(
 ).pipe(Layer.provideMerge(Knowledge))
 
 // Long-running loops that react to Discord and OpenCode events.
-const Workers = Layer.mergeAll(Listener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
+const Workers = Layer.mergeAll(Listener.layer, VoiceListener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(
   Layer.provide(Places.layer),
 )
 

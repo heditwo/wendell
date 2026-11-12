@@ -5,6 +5,9 @@
     "url": "http://localhost:8000/v1",
     "model": "Systran/faster-whisper-small"
   },
+  "voice": {
+    "tts": { "url": "http://127.0.0.1:8880", "voice": "verity" }
+  },
   "servers": {
     "home": {
       "model": "opencode/claude-sonnet-5-5",
