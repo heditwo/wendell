@@ -172,7 +172,7 @@ export const make = (sessions: Sessions.Interface) =>
         Effect.gen(function* () {
           if (Progress.isReaction(name)) return yield* Ref.set(reacted, true)
 
-          if (!(yield* startWorking)) return
+          if (!(yield* startWorking) || foreign) return
 
           const label = Progress.label(name).pipe(Option.map((text) => (helper ? `Helper: ${text}` : text)))
 
@@ -348,7 +348,7 @@ export const make = (sessions: Sessions.Interface) =>
     })
 
     // Schedules and background jobs (such as image_generate) wake Wendell's sessions without a Discord message.
-    // Their turns get the same watcher, without 👀 and without the silence fallback; errors are still posted.
+    // Their turns get the same watcher, without 👀, the status line or the silence fallback; errors are still posted.
     const onForeignDelivery = Effect.fn("Conversations.onForeignDelivery")(function* (
       remote: Fleet.Remote,
       sessionID: Session.ID,
