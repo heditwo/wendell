@@ -174,7 +174,7 @@ Wendell uses OpenCode's schedules (`experimental.schedules: true` in your OpenCo
 - Times use `WENDELL_TIME_ZONE` (default: the time zone of the machine that runs Wendell), unless you name another time zone.
 - A reminder pings only the person who asked. The agent sets `mention` in `wendell_reply`, and Discord allows only that user. Wendell never pings roles, `@everyone` or `@here`.
 - A check that reports only problems stays silent when everything is fine.
-- Wendell attaches his tools to all known conversations when he starts, so a schedule can post after a restart.
+- Wendell attaches his tools to all known conversations when he starts, so a schedule can post after a restart. OpenCode unloads a directory that had no session activity for 60 minutes (`experimental.location_idle_timeout`), and the tools go with it. Wendell attaches them again when the directory loads, so a reminder can also post after a long quiet time.
 - `/reminders` shows the reminders of the current conversation with their next run. Only you see the answer. `/reminders cancel:<name>` cancels one; type a part of the name to select it.
 - Commands in a check still need approval (see [Approvals](#approvals)). In `review` mode, the reviewer approves what clearly follows from the conversation. Otherwise, buttons appear and the check waits for a person.
 

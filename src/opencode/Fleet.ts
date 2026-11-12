@@ -1,6 +1,6 @@
 import { AbsolutePath, OpenCode, type OpenCodeClient, Project } from "@opencode/client/effect"
 import { type ClientMcpConnection, connectClientMcp } from "@opencode/client/mcp"
-import { Context, Duration, Effect, HashMap, Layer, Option, Redacted, Ref, Schedule, Schema, Semaphore, Stream } from "effect"
+import { Context, Deferred, Duration, Effect, HashMap, Layer, Option, Redacted, Ref, Schedule, Schema, Semaphore, Stream } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import path from "node:path"
 import { Servers } from "../config/Servers.ts"
@@ -28,7 +28,44 @@ export interface Capabilities {
   readonly imageGeneration: boolean
 }
 
-const CAPABILITY_WATCH_RESTART = Duration.seconds(5)
+const WATCH_RESTART = Duration.seconds(5)
+
+// A delivery waits this long for the server to take the tools, then goes on without them.
+const ATTACH_TIMEOUT = Duration.seconds(3)
+
+/** One open tool connection. */
+interface Live {
+  readonly connection: ClientMcpConnection
+  /** Done when the server has asked for the tool list. From then on, sessions in the directory can call the tools. */
+  readonly listed: Deferred.Deferred<void>
+}
+
+/** Wendell's tools in one directory. No live connection: the server unloaded the directory, and the tools went with it. */
+interface Attachment {
+  readonly remote: Remote
+  readonly directory: AbsolutePath
+  readonly live: Option.Option<Live>
+}
+
+/** One frame from the server on the tool connection: an MCP JSON-RPC request. */
+const decodeRequest = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ method: Schema.String })))
+
+/**
+ * The client library does not say when the tools are attached, so this socket watches for the server's
+ * `tools/list` request, which is the last step before the server offers the tools to sessions.
+ */
+const socketThatReports = (listed: Deferred.Deferred<void>): typeof WebSocket =>
+  class extends WebSocket {
+    constructor(...args: ConstructorParameters<typeof WebSocket>) {
+      super(...args)
+      this.addEventListener("message", (event) => {
+        // Later frames are tool calls. They are not read a second time here.
+        if (Deferred.isDoneUnsafe(listed)) return
+
+        if (Option.exists(decodeRequest(event.data), (request) => request.method === "tools/list")) Deferred.doneUnsafe(listed, Effect.void)
+      })
+    }
+  }
 
 // From this version on, `image_generate` is on whenever an image model is available.
 const IMAGE_TOOL_BY_DEFAULT = [2, 2, 2] as const
@@ -49,7 +86,11 @@ export interface Interface {
   readonly remotes: ReadonlyArray<Remote>
   readonly byName: (name: ServerName) => Option.Option<Remote>
   readonly fallback: Remote
-  /** Makes Wendell's Discord tools available to sessions in `directory`. Tools are scoped to one location. */
+  /**
+   * Makes Wendell's Discord tools available to sessions in `directory`, and waits until the server has them.
+   * Tools are scoped to one location. Call it before each delivery: it costs nothing while the tools are attached,
+   * and it attaches them again after the server unloaded the directory.
+   */
   readonly attach: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void>
   readonly makeDirectory: (remote: Remote, directory: AbsolutePath) => Effect.Effect<void, ServerRequestError>
   /** Writes a file on the server, which may be another machine. Creates missing parent directories. */
@@ -120,29 +161,31 @@ export const layer = Layer.effect(
     const toolCalls = yield* ToolCalls.Service
     const http = yield* HttpClient.HttpClient
     const run = Effect.runPromiseWith(yield* Effect.context<never>())
-    const connections = yield* Ref.make(HashMap.empty<string, ClientMcpConnection>())
+    const attachments = yield* Ref.make(HashMap.empty<string, Attachment>())
     const attaching = yield* Semaphore.make(1)
     const tokens = new Map<ServerName, Redacted.Redacted>()
     const created = yield* Ref.make(HashMap.empty<string, true>())
 
+    const keyOf = (remote: Remote, directory: string) => `${remote.name}:${directory}`
+
+    const close = (live: Live) => Effect.promise(() => live.connection.close())
+
+    const liveOf = (remote: Remote, directory: string) =>
+      Ref.get(attachments).pipe(Effect.map((all) => Option.flatMap(HashMap.get(all, keyOf(remote, directory)), (attachment) => attachment.live)))
+
     yield* Effect.addFinalizer(() =>
-      Ref.get(connections).pipe(
+      Ref.get(attachments).pipe(
         Effect.flatMap((all) =>
-          Effect.forEach(HashMap.values(all), (connection) => Effect.promise(() => connection.close()), {
+          Effect.forEach(HashMap.values(all), (attachment) => Option.match(attachment.live, { onNone: () => Effect.void, onSome: close }), {
             discard: true,
           }),
         ),
       ),
     )
 
-    const attach = Effect.fn("Fleet.attach")(function* (remote: Remote, directory: AbsolutePath) {
-      const key = `${remote.name}:${directory}`
-      const token = tokens.get(remote.name)
-
-      if (token === undefined) return
-
-      yield* Effect.gen(function* () {
-        if (HashMap.has(yield* Ref.get(connections), key)) return
+    const open = (remote: Remote, directory: AbsolutePath, token: Redacted.Redacted) =>
+      Effect.sync((): Live => {
+        const listed = Deferred.makeUnsafe<void>()
 
         const connection = connectClientMcp({
           url: remote.url,
@@ -150,12 +193,133 @@ export const layer = Layer.effect(
           directory,
           headers: { authorization: authorization(token) },
           tools: ClientTools.make(remote.name, toolCalls, run),
+          WebSocket: socketThatReports(listed),
         })
 
-        yield* Ref.update(connections, HashMap.set(key, connection))
-        yield* Effect.logDebug("Attached Wendell's tools", { server: remote.name, directory })
+        return { connection, listed }
+      })
+
+    /** The directory's open connection. Opens one when there is none. None when the server is not connected. */
+    const connected = Effect.fn("Fleet.connected")(function* (remote: Remote, directory: AbsolutePath) {
+      const existing = yield* liveOf(remote, directory)
+
+      if (Option.isSome(existing)) return existing
+
+      const token = tokens.get(remote.name)
+
+      if (token === undefined) return Option.none<Live>()
+
+      return yield* Effect.gen(function* () {
+        const key = keyOf(remote, directory)
+        const known = HashMap.get(yield* Ref.get(attachments), key)
+        const again = Option.flatMap(known, (attachment) => attachment.live)
+
+        if (Option.isSome(again)) return again
+
+        const live = yield* open(remote, directory, token)
+
+        yield* Ref.update(attachments, HashMap.set(key, { remote, directory, live: Option.some(live) }))
+        yield* Option.isSome(known)
+          ? Effect.logInfo("Attached Wendell's tools again", { server: remote.name, directory })
+          : Effect.logDebug("Attached Wendell's tools", { server: remote.name, directory })
+
+        return Option.some(live)
       }).pipe(Semaphore.withPermits(attaching, 1))
     })
+
+    const attach = Effect.fn("Fleet.attach")(function* (remote: Remote, directory: AbsolutePath) {
+      const live = yield* connected(remote, directory)
+
+      if (Option.isNone(live) || Deferred.isDoneUnsafe(live.value.listed)) return
+
+      yield* Deferred.await(live.value.listed).pipe(Effect.timeout(ATTACH_TIMEOUT), Effect.ignore)
+    })
+
+    // The server unloads a directory that had no session activity for a while (`experimental.location_idle_timeout`,
+    // default 60 minutes). The tools go with it, but the socket stays open and still answers, so only the
+    // `location.shutdown` event shows it.
+    const onUnloaded = Effect.fn("Fleet.onUnloaded")(
+      function* (remote: Remote, directory: string) {
+        const key = keyOf(remote, directory)
+
+        const dropped = yield* Ref.modify(attachments, (all) =>
+          Option.match(HashMap.get(all, key), {
+            onNone: () => [Option.none<Live>(), all] as const,
+            onSome: (attachment) => [attachment.live, HashMap.set(all, key, { ...attachment, live: Option.none() })] as const,
+          }),
+        )
+
+        if (Option.isNone(dropped)) return
+
+        yield* close(dropped.value)
+        yield* Effect.logInfo("Detached Wendell's tools: the server unloaded the directory", { server: remote.name, directory })
+      },
+      (effect) => Semaphore.withPermits(attaching, 1)(effect),
+    )
+
+    // The server loaded the directory again without a delivery from Wendell, for example because a reminder fired.
+    const onLoaded = Effect.fn("Fleet.onLoaded")(function* (remote: Remote, directory: string) {
+      const known = HashMap.get(yield* Ref.get(attachments), keyOf(remote, directory))
+
+      if (Option.isNone(known) || Option.isSome(known.value.live)) return
+
+      yield* connected(remote, known.value.directory)
+    })
+
+    // The event stream cannot resume, so an unload during a break is not reported. New connections are always right.
+    const reopenAll = Effect.fn("Fleet.reopenAll")(
+      function* (remote: Remote) {
+        const token = tokens.get(remote.name)
+
+        if (token === undefined) return
+
+        const mine = [...HashMap.values(yield* Ref.get(attachments))].filter(
+          (attachment) => attachment.remote.name === remote.name && Option.isSome(attachment.live),
+        )
+
+        yield* Effect.forEach(
+          mine,
+          (attachment) =>
+            Effect.gen(function* () {
+              yield* Option.match(attachment.live, { onNone: () => Effect.void, onSome: close })
+
+              const live = yield* open(remote, attachment.directory, token)
+
+              yield* Ref.update(attachments, HashMap.set(keyOf(remote, attachment.directory), { ...attachment, live: Option.some(live) }))
+            }),
+          { discard: true },
+        )
+        yield* Effect.logInfo("Attached Wendell's tools again after the event stream reconnected", { server: remote.name, directories: mine.length })
+      },
+      (effect) => Semaphore.withPermits(attaching, 1)(effect),
+    )
+
+    /** Keeps the tool connections in step with what the server has loaded. Runs for the life of the process. */
+    const watchAttachments = (remote: Remote) =>
+      Effect.gen(function* () {
+        const connectedBefore = yield* Ref.make(false)
+
+        return yield* remote.client.event.subscribe({ types: ["location.shutdown", "config.updated", "session.inbox.enqueued"] }).pipe(
+          Stream.runForEach((event) => {
+            if (event.type === "server.connected") {
+              return Ref.getAndSet(connectedBefore, true).pipe(Effect.flatMap((again) => (again ? reopenAll(remote) : Effect.void)))
+            }
+
+            if (event.type !== "location.shutdown" && event.type !== "config.updated" && event.type !== "session.inbox.enqueued") {
+              return Effect.void
+            }
+
+            const directory = event.location?.directory
+
+            if (directory === undefined) return Effect.void
+
+            // `config.updated` is the first event of a directory that loads, and it comes before a waiting prompt runs.
+            return event.type === "location.shutdown" ? onUnloaded(remote, directory) : onLoaded(remote, directory)
+          }),
+          Effect.catch((cause) => Effect.logWarning("Tool attachment watcher stopped", { server: remote.name, cause })),
+          Effect.repeat(Schedule.spaced(WATCH_RESTART)),
+        )
+      })
 
     const requestError = (remote: Remote, operation: string) => (cause: unknown) =>
       new ServerRequestError({ server: remote.name, operation, cause })
@@ -294,9 +458,11 @@ export const layer = Layer.effect(
       yield* client.event.subscribe({ types: ["config.updated", "model.updated", "provider.updated"] }).pipe(
         Stream.runForEach(() => refresh),
         Effect.catch((cause) => Effect.logWarning("Capability watcher stopped", { server: server.name, cause })),
-        Effect.repeat(Schedule.spaced(CAPABILITY_WATCH_RESTART)),
+        Effect.repeat(Schedule.spaced(WATCH_RESTART)),
         Effect.forkScoped,
       )
+
+      yield* watchAttachments(remote).pipe(Effect.forkScoped)
 
       yield* Effect.logInfo("Connected to OpenCode server", {
         server: server.name,
