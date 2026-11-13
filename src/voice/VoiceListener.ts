@@ -92,6 +92,7 @@ export const layer = Layer.effectDiscard(
         spoken: true,
         inTask: Option.isSome(place.task),
         inCall: true,
+        alone: false,
         following: true,
         goal: Option.none(),
       })

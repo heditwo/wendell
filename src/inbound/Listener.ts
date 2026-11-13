@@ -87,6 +87,7 @@ export const layer = Layer.effectDiscard(
         spoken: !quiet && Option.isSome(message.transcript),
         inTask: Option.isSome(place.task),
         inCall: false,
+        alone: false,
         following: quiet ? false : yield* following(message.channelId, place),
         goal: quiet ? Option.none() : place.goal,
       })
