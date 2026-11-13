@@ -1,8 +1,8 @@
 import type { AbsolutePath } from "@opencode/client/effect"
-import { Effect, type Option, Schema } from "effect"
+import { Data, Effect, type Option, Schema } from "effect"
 import type { WendellConfig } from "../config/WendellConfig.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
-import type { ChannelId, GuildId, MessageId } from "../shared/Ids.ts"
+import type { ChannelId, GuildId, MessageId, UserId } from "../shared/Ids.ts"
 
 export type Kind = "channel" | "task" | "dm"
 
@@ -15,6 +15,18 @@ export interface Conversation {
   readonly directory: AbsolutePath
   readonly title: string
 }
+
+/** Where the newest input of a conversation came from. A reply goes back the same way. */
+export type Source = Data.TaggedEnum<{
+  /** Messages typed in a text chat: the conversation's own channel, or the chat of its voice call. */
+  Chat: { readonly channelId: ChannelId; readonly authors: ReadonlyArray<UserId> }
+  /** Speech in the conversation's voice call. */
+  Speech: {}
+  /** Wendell's own hand-offs and reports, and turns that he did not start, such as a schedule. */
+  Own: {}
+}>
+
+export const Source = Data.taggedEnum<Source>()
 
 /** How Wendell shows and finishes one turn. */
 export interface Turn {
@@ -29,6 +41,10 @@ export interface Turn {
   readonly trigger: Option.Option<{ readonly channelId: ChannelId; readonly messageId: MessageId }>
   /** How to deliver while a turn is running. Default: `wait`, for Wendell's own hand-offs and reports. */
   readonly busy?: WendellConfig.BusyMode | undefined
+  /** Default: `Own`. */
+  readonly source?: Source | undefined
+  /** The text channel for typing, the status line and errors. Default: the conversation's channel. */
+  readonly chat?: ChannelId | undefined
 }
 
 export class ConversationError extends Schema.TaggedError<ConversationError>()("Conversations.ConversationError", {

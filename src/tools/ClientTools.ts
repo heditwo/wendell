@@ -24,6 +24,17 @@ const ReplyArgs = Schema.Struct({
     description:
       "User ID to ping, for example the person who asked for a reminder. Only this user is pinged; never more than one person.",
   }),
+  speak: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Only when you are in a voice call. true: say this message in the call. false: do not say it, only post it. " +
+      "Leave it out to let Wendell decide: replies to speech, and to a person who is in the call, are spoken.",
+  }),
+  post: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Only when you are in a voice call. A message that is spoken to the people who asked is not posted as text. " +
+      "true: also post it. Use it only when a person asks for the text. " +
+      "Messages with a link, code, files, embeds or a mention are always posted.",
+  }),
 })
 
 const ReactArgs = Schema.Struct({
@@ -188,7 +199,7 @@ const JoinVoiceArgs = Schema.Struct({
   channel_id: Schema.optional(ChannelId).annotate({ description: "Or: the ID of a voice channel." }),
   brief: Schema.optional(Schema.NonEmptyString).annotate({
     description:
-      "When you join from a DM or another channel: what the call needs to know from this conversation, in one or two sentences. " +
+      "Only for a join from a DM: what the call needs to know from this conversation, in one or two sentences. " +
       "The call's conversation starts with it. People in the call can see what you say there, so do not include private things from a DM.",
   }),
 })
@@ -247,7 +258,8 @@ export const make = (
   return [
     tool(
       "reply",
-      "Post a message in the current Discord conversation. This is the only way to speak. Call it at most once per batch of messages.",
+      "Post a message in the current Discord conversation. In a voice call, a message that answers speech or a person in the call " +
+        "is spoken and not posted. This is the only way to speak. Call it at most once per batch of messages.",
       ReplyArgs,
       (input) =>
         ToolCalls.Call.Reply({
@@ -256,6 +268,8 @@ export const make = (
           files: input.files ?? [],
           embeds: input.embeds ?? [],
           mention: Option.fromUndefinedOr(input.mention),
+          speak: Option.fromUndefinedOr(input.speak),
+          post: input.post ?? false,
         }),
     ),
     tool(
@@ -385,9 +399,10 @@ export const make = (
     ),
     tool(
       "join_voice",
-      "Join a voice channel when someone asks you to, so that you hear what people say there and your replies are spoken aloud. " +
-        "Give user_id or channel_id. In a server channel, user_id finds the person's voice channel in that server. " +
-        "In a DM, it finds it in any server that you share with them. Discord bots cannot join DM calls.",
+      "Join a voice channel when someone asks you to. Give user_id or channel_id. " +
+        "In a server channel, the call then belongs to this conversation: what people say in it comes here, and your replies to it are spoken. " +
+        "In a DM, user_id finds the person's voice channel in a server that you share with them, " +
+        "and the call gets its own conversation in the chat of the voice channel. Discord bots cannot join DM calls.",
       JoinVoiceArgs,
       (input) =>
         ToolCalls.Call.JoinVoice({

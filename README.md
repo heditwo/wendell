@@ -100,7 +100,8 @@ For [voxtype](https://github.com/peteonrails/voxtype), which prints progress lin
 - The agent gets the transcript with the message. "Wendell, …" in a voice message addresses him.
 - Speech recognition often gets the name "Wendell" wrong. Thus the decision model also examines voice messages that do not contain his name.
 - If the transcription fails or takes more than 3 minutes, the agent gets only the audio file.
-- `bun run doctor` checks the provider: that the program and `ffmpeg` exist, or that the endpoint answers.
+- For the `command` provider, an exit code other than 0 counts as a failure, also when the program printed text.
+- `bun run doctor` checks the provider: that the program and `ffmpeg` exist, or that the endpoint answers. The "transcription test" also transcribes one second of silence.
 - To add a provider, write a module in `src/transcription/` with its `Config` schema and a `make` that returns a `Provider.Provider`. Then add it to `TranscriptionConfig.Config` and `SpeechToText.layer`.
 
 ### Files and images from Wendell
@@ -124,16 +125,46 @@ This works only in DMs and only for channels where the person in the DM wrote. S
 
 Wendell can join a voice channel in a Discord server. He hears what people say there and speaks his replies.
 
+### Join and leave
+
 - Ask him to join, for example "Wendell, join my call". The agent calls `wendell_join_voice` with your user ID, or with a voice channel ID.
-- A Discord voice channel has its own text chat with the same ID. The call and this chat are one conversation. When you ask Wendell to join from another channel, he continues in the voice channel's chat. The agent can give that conversation a short `brief` about what you talked about.
-- You can also ask from a DM. Wendell then finds your voice channel in the Discord servers that you share with him. When you are in more than one, he asks which one.
-- Each thing that a person says goes to the speech-to-text provider of [Voice messages](#voice-messages). Wendell ignores bots. "Wendell, …" at the start or end addresses him. The decision model examines all other speech, because Wendell takes part in the call and speech recognition often gets his name wrong. Speech of a few seconds goes to the agent in one batch, as for messages.
-- The agent gets the speech marked as speech recognition, with the speaker's name and user ID. Speech has no message ID, so Wendell does not react to it, reply to it or show 👀.
-- When Wendell is in the call, he speaks his replies in the voice channel's conversation instead of posting them. He removes code blocks, links, markdown and emojis before he speaks, and says names for mentions. He also posts the reply in the chat when it has files, embeds, links, code or a mention, or when nothing readable remains.
-- When someone talks while Wendell speaks, he stops speaking.
+- When you ask in a server channel or in a task thread, the call belongs to that conversation. What people say in the call goes to that conversation. Messages that you type in the text chat of the voice channel go there too. A Discord voice channel has its own text chat with the same ID.
+- When someone asks him to join from another conversation, the call moves to that conversation.
+- When you ask from a DM, Wendell finds your voice channel in the Discord servers that you share with him. When you are in more than one, he asks which one. A DM is private, so the call gets its own conversation, in the text chat of the voice channel. The agent can give that conversation a short `brief` about what you talked about.
 - He leaves when you ask (`wendell_leave_voice`), or 30 seconds after the last person leaves the channel.
 - Discord bots cannot join DM calls or group calls.
-- Wendell cannot tell people from bots when someone talks over him: any speech stops his speech.
+
+### What Wendell hears
+
+- Each thing that a person says goes to the speech-to-text provider of [Voice messages](#voice-messages). Wendell ignores bots. Speech of less than 2 seconds is dropped when its text is only "you", "thank you", "thanks", "thanks for watching", "thank you for watching", "bye" or "bye bye", because speech recognition writes these for silence.
+- The agent gets the speech marked as speech recognition, with the speaker's name and user ID. Speech has no message ID, so Wendell does not react to it, reply to it or show 👀.
+- Speech goes to the agent at once. Messages that you type while you are in the call, or that address Wendell, wait 500 ms. Other messages wait `WENDELL_BATCH_WINDOW`.
+
+### Who speech is for
+
+- When you are the only person in the call with Wendell, everything that you say is for him.
+- "Wendell, …" at the start or end addresses him.
+- The decision model examines all other speech, because speech recognition often gets his name wrong. For 45 seconds after Wendell spoke in the call, the normal threshold applies (`WENDELL_SKIP_BELOW`). Otherwise a line needs a score of at least 0.5.
+- The same rules apply to messages that a person in the call types, in the conversation's channel or in the text chat of the voice channel. The rule for a single person applies only in the text chat of the voice channel. In a task thread, every message is about the task, as before.
+- Lines that are not for Wendell are not lost. The agent gets them as context with its next batch, and does not answer them.
+
+### What Wendell says and posts
+
+- When a reply answers speech, or a message from a person in the call, or mentions a person in the call, Wendell speaks it in the call. The agent can force speech or prevent it with `speak` in `wendell_reply`.
+- A reply that you heard in the call is not posted as text. Ask for the text ("Wendell, put that in the chat") and the agent posts it with `post` in `wendell_reply`. A reply with files, embeds, links, code or a mention is always posted, because speech cannot carry these. A reply is also posted when nothing in it can be spoken, and when a person who asked is not in the call.
+- When one reply answers speech and also a message from a person who is not in the call, Wendell speaks it and posts it.
+- A posted reply to speech goes to the conversation's channel. A posted reply to a message that you typed in the text chat of the voice channel goes to that chat.
+- Before he speaks, Wendell removes code blocks, links, markdown and emojis, and says names for mentions.
+- Other conversations in the same Discord server, and the DM of a person who is in the call, are told about the call one time for each call. From there, the agent can say a reply in the call with `speak: true`. The conversation of the call is told what he said. A DM can speak only in a call where the person of the DM is.
+- When someone talks while Wendell speaks, he stops speaking, and the agent is told with its next batch. Wendell cannot tell people from bots when someone talks over him: any speech stops his speech.
+- When the agent has nothing to say, it writes `(quiet)`. Wendell never posts or speaks text that starts with `(quiet)`.
+
+### When Wendell cannot hear
+
+- After he joins, Wendell transcribes one second of silence to learn if speech recognition works. When it fails, or when speech recognition fails for two things in a row that people said, he says "I cannot hear the call: speech recognition is failing. Type in the chat instead." in the call, and posts it in the conversation of the call.
+- When speech recognition fails for one thing that a person said, Wendell tries one more time. If it fails again, the agent is told with its next batch that this person said something that Wendell did not get.
+- When speech recognition works again, he posts "I can hear the call again."
+- When transcription is off, Wendell tells the agent that he does not hear the call.
 
 ### Set up voice
 
@@ -166,7 +197,9 @@ Wendell can join a voice channel in a Discord server. He hears what people say t
    | `sidecar` | The command that starts the sidecar, from the repository root. Default: `["node", "voice/sidecar.ts"]`. |
 
 5. Give Wendell's role the **Connect** and **Speak** permissions in the voice channels. Wendell uses the voice states intent, which is not privileged, so the Developer Portal needs no change.
-6. Run `bun run doctor`. It checks that `node` runs, that `voice/node_modules` exists and that the speech server answers on `/health`.
+6. Run `bun run doctor`. It checks that `node` runs, that `voice/node_modules` exists and that the speech server answers on `/health`. It also transcribes one second of silence with the speech-to-text provider.
+
+If the speech server and the speech-to-text program use the same GPU, the speech-to-text program can run out of GPU memory and stop with an error. Then Wendell cannot hear the call. Run the speech-to-text program on the CPU, or use a speech-to-text server that stays loaded (the `openai` provider).
 
 Wendell starts the sidecar as a child process and starts it again when it stops. The sidecar does not get the bot token: Wendell sends the voice events of the Discord gateway to it. `voice/PROTOCOL.md` describes the messages between them.
 
@@ -219,7 +252,7 @@ The agent can post in Discord only through these tools.
 
 | Tool | Use |
 | --- | --- |
-| `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping). |
+| `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping), `speak` (in a voice call: `true` says the message in the call, `false` only posts it, no value lets Wendell decide), `post` (in a voice call: `true` also posts a message that was spoken). See [Voice calls](#voice-calls). |
 | `wendell_react` | Add an emoji reaction to a message. Custom emojis use `name:id`. |
 | `wendell_start_task` | Move longer work into a thread, or start a sub-task. |
 | `wendell_continue_task` | Send a request to an existing task. |
@@ -232,7 +265,7 @@ The agent can post in Discord only through these tools.
 | `wendell_list_expressions` | List the custom emojis, stickers and soundboard sounds of the Discord server, with IDs and who added them. Field: `kind` (optional). |
 | `wendell_edit_expression` | Change an emoji (`name`), a sticker (`name`, `emoji`, `description`) or a sound (`name`, `emoji`, `volume`). `expression` is the ID or the exact name. |
 | `wendell_remove_expression` | Remove an emoji, a sticker or a sound. `expression` is the ID or the exact name. |
-| `wendell_join_voice` | Join the voice channel of `user_id` (in this server, or in a DM in any shared server), or `channel_id`. Field: `brief` (optional) for the call's conversation. See [Voice calls](#voice-calls). |
+| `wendell_join_voice` | Join the voice channel of `user_id` (in this server, or in a DM in any shared server), or `channel_id`. In a server channel or a task thread, the call then belongs to that conversation. Field: `brief` (optional, only for a join from a DM) for the call's own conversation. See [Voice calls](#voice-calls). |
 | `wendell_leave_voice` | Leave the voice channel of the Discord server. In a DM, leave the only call. |
 | `wendell_read_channel` | In a DM: read the newest messages (`limit`, default 30) of a server channel where the person wrote in the last 7 days. The newest 8 files are saved in the DM's directory. See [DMs and server channels](#dms-and-server-channels). |
 
@@ -407,7 +440,7 @@ Threads use the server and goal of their parent channel. Task threads stay on th
 | The score from which the reviewer approves a request | `WENDELL_APPROVE_ABOVE` (default `0.6`) |
 | How permission requests are answered here | `/auto` |
 | How long Wendell follows a conversation after he speaks | `WENDELL_FOLLOW_WINDOW` (default `10 minutes`) |
-| How long Wendell collects messages before he delivers them together | `WENDELL_BATCH_WINDOW` (default `3 seconds`) |
+| How long Wendell collects messages that do not address him before he delivers them together | `WENDELL_BATCH_WINDOW` (default `3 seconds`) |
 | The time zone for reminders | `WENDELL_TIME_ZONE` (default: the machine's time zone) |
 | The model of one conversation, or of a server | `/model`, or ask Wendell |
 

@@ -6,6 +6,7 @@ import { Settings } from "../config/Settings.ts"
 import { WendellConfig } from "../config/WendellConfig.ts"
 import { SpeechToText } from "../transcription/SpeechToText.ts"
 import { Fleet } from "../opencode/Fleet.ts"
+import { Silence } from "../voice/Silence.ts"
 import { VoiceCheck } from "../voice/VoiceCheck.ts"
 
 const check = (label: string, ok: boolean, detail: string) => Console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${detail}`)
@@ -146,6 +147,20 @@ const checkTranscription = Effect.gen(function* () {
   const results = yield* provider.value.check
 
   yield* Effect.forEach(results, (result) => check(result.label, result.ok, result.detail), { discard: true })
+
+  const probe = yield* Silence.probe(provider.value).pipe(
+    Effect.as(Option.none<string>()),
+    Effect.catch((error) => Effect.succeed(Option.some(Silence.describe(error)))),
+  )
+
+  yield* check(
+    "transcription test",
+    Option.isNone(probe),
+    Option.match(probe, {
+      onNone: () => "transcribed one second of silence",
+      onSome: (cause) => `could not transcribe one second of silence (${cause})`,
+    }),
+  )
 })
 
 const checkVoice = Effect.gen(function* () {

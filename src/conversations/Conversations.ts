@@ -6,6 +6,7 @@ import { Settings } from "../config/Settings.ts"
 import { Discord } from "../discord/Discord.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { Models } from "../opencode/Models.ts"
+import type { ChannelId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
 import { type Conversation, type ConversationError, conversationError, type Turn } from "./Conversation.ts"
 import { Sessions } from "./Sessions.ts"
@@ -78,6 +79,7 @@ export const layer = Layer.effect(
       conversation: Conversation,
       sessionID: Session.ID,
       inboxID: SessionMessage.ID,
+      chat: ChannelId,
     ) {
       yield* Effect.sleep(settings.interruptAfter)
 
@@ -90,7 +92,7 @@ export const layer = Layer.effect(
       if (!interrupted) return
 
       yield* Effect.logInfo("Interrupted a turn for a new message", { server: conversation.remote.name, channelId: conversation.channelId })
-      yield* discord.send(conversation.channelId, "-# Stopped to read your message.", Option.none()).pipe(Effect.ignore)
+      yield* discord.send(chat, "-# Stopped to read your message.", Option.none()).pipe(Effect.ignore)
     }, Effect.catch((cause) => Effect.logWarning("Could not interrupt for a new message", { cause })))
 
     const deliver = Effect.fn("Conversations.deliver")(
@@ -114,7 +116,7 @@ export const layer = Layer.effect(
           delivery: busy === "wait" ? "queue" : "steer",
         })
 
-        if (busy === "interrupt") yield* interruptIfUnread(conversation, sessionID, inboxID).pipe(Effect.forkIn(scope))
+        if (busy === "interrupt") yield* interruptIfUnread(conversation, sessionID, inboxID, turn.chat ?? conversation.channelId).pipe(Effect.forkIn(scope))
       },
       (effect, conversation) => conversationError("Conversations.deliver", conversation)(effect),
     )

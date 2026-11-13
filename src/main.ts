@@ -8,6 +8,7 @@ import { WendellConfig } from "./config/WendellConfig.ts"
 import { Activity } from "./conversations/Activity.ts"
 import { Conversations } from "./conversations/Conversations.ts"
 import { Places } from "./conversations/Places.ts"
+import { Replies } from "./conversations/Replies.ts"
 import { Commands } from "./discord/commands/Commands.ts"
 import { Discord } from "./discord/Discord.ts"
 import { Profile } from "./discord/Profile.ts"
@@ -32,6 +33,7 @@ import { Tasks } from "./tasks/Tasks.ts"
 import { ToolCalls } from "./tools/ToolCalls.ts"
 import { ToolWorker } from "./tools/ToolWorker.ts"
 import { Uploads } from "./tools/Uploads.ts"
+import { Calls } from "./voice/Calls.ts"
 import { Voice } from "./voice/Voice.ts"
 import { VoiceListener } from "./voice/VoiceListener.ts"
 
@@ -44,8 +46,13 @@ const Stores = Layer.mergeAll(WendellConfig.layer, Servers.layer, Tasks.layer, A
 // The two outside connections: Discord and the paired OpenCode servers.
 const Connections = Layer.mergeAll(Discord.layer, Fleet.layer)
 
-// Model choices, long-term memory and voice connections, which most services read.
-const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer, SpeechToText.layer, Voice.layer)
+// Model choices, long-term memory, speech recognition and voice calls, which most services read.
+const Knowledge = Layer.mergeAll(Models.layer, Memory.layer, ContextLimits.layer, Calls.layer).pipe(
+  Layer.provideMerge(Layer.mergeAll(SpeechToText.layer, Voice.layer)),
+)
+
+// Where each reply goes: text, speech in a call, or both.
+const Speaking = Replies.layer.pipe(Layer.provideMerge(Knowledge))
 
 const Services = Layer.mergeAll(
   // Sessions and turns
@@ -63,7 +70,7 @@ const Services = Layer.mergeAll(
   // Tool support and Wendell's profile
   Uploads.layer,
   Profile.layer,
-).pipe(Layer.provideMerge(Knowledge))
+).pipe(Layer.provideMerge(Speaking))
 
 // Long-running loops that react to Discord and OpenCode events.
 const Workers = Layer.mergeAll(Listener.layer, VoiceListener.layer, ToolWorker.layer, Approvals.layer, Commands.layer).pipe(

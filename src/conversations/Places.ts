@@ -7,6 +7,7 @@ import { Inbound } from "../inbound/Inbound.ts"
 import { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, GuildId, UserId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
+import { Calls } from "../voice/Calls.ts"
 import type { Conversation } from "./Conversation.ts"
 
 export interface Place {
@@ -39,6 +40,7 @@ export const layer = Layer.effect(
     const config = yield* WendellConfig.Service
     const discord = yield* Discord.Service
     const tasks = yield* Tasks.Service
+    const calls = yield* Calls.Service
 
     const channelInfo = (channelId: ChannelId) =>
       discord.channel(channelId).pipe(
@@ -78,6 +80,18 @@ export const layer = Layer.effect(
 
       if (Option.isSome(task)) {
         return { conversation: forTask(task.value), goal: Option.none(), isThread: true, task }
+      }
+
+      // The chat of a live call belongs to the conversation that owns the call.
+      const call = yield* calls.ofChannel(message.channelId)
+
+      if (Option.isSome(call)) {
+        return {
+          conversation: call.value.home,
+          goal: Option.none(),
+          isThread: false,
+          task: yield* tasks.get(call.value.home.channelId),
+        } satisfies Place
       }
 
       if (Option.isNone(message.guildId)) {

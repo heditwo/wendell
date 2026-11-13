@@ -13,6 +13,8 @@ export type Call = Data.TaggedEnum<{
     readonly files: ReadonlyArray<string>
     readonly embeds: ReadonlyArray<Embeds.Embed>
     readonly mention: Option.Option<UserId>
+    readonly speak: Option.Option<boolean>
+    readonly post: boolean
   }
   React: { readonly messageId: MessageId; readonly emoji: string }
   StartTask: { readonly messageId: Option.Option<MessageId>; readonly title: string; readonly brief: string }

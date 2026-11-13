@@ -18,7 +18,7 @@ const RESTART_MAX = Duration.minutes(1)
 const STABLE_RUN = Duration.minutes(1)
 const STOP_GRACE = Duration.seconds(5)
 const UTTERANCE_BUFFER = 64
-const CALL_LINES = 12
+const INTERRUPTION_BUFFER = 16
 
 /** One complete thing that one person said in a voice channel where Wendell is. */
 export interface Utterance {
@@ -51,32 +51,28 @@ export interface Interface {
   readonly channelIn: (guildId: GuildId) => Effect.Effect<Option.Option<ChannelId>>
   /** The voice channels that Wendell is in or is joining, in all guilds. */
   readonly calls: Effect.Effect<ReadonlyArray<{ readonly guildId: GuildId; readonly channelId: ChannelId }>>
-  /** Wendell is connected to the voice channel with this ID, so what he posts in its chat is also spoken. */
-  readonly inCall: (channelId: ChannelId) => Effect.Effect<boolean>
-  /** Speaks the readable part of a message in the call of this channel. False when Wendell is not in it or nothing is readable. */
-  readonly speak: (channelId: ChannelId, text: string) => Effect.Effect<boolean>
+  /** Speaks the readable part of `text` in the guild's call. The spoken text, or none when Wendell is not connected or nothing is readable. */
+  readonly speak: (guildId: GuildId, text: string) => Effect.Effect<Option.Option<string>>
   readonly utterances: Stream.Stream<Utterance>
-  /** Records a transcribed utterance for `callLines`. */
-  readonly heard: (channelId: ChannelId, speaker: string, text: string) => Effect.Effect<void>
-  /** The last things said in the call, by people and by Wendell, as "name: text" lines. */
-  readonly callLines: (channelId: ChannelId) => Effect.Effect<ReadonlyArray<string>>
+  /** The guilds where a person spoke over Wendell and his speech stopped. Also for speech that `leave` removed. */
+  readonly interruptions: Stream.Stream<GuildId>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Voice") {}
+
+export const OFF_MESSAGE = "Voice is off. The owner can turn it on with the voice setting in wendell.json."
 
 const voiceError = (message: string) => new VoiceError({ message })
 
 const off: Interface = {
   enabled: false,
-  join: () => Effect.fail(voiceError("Voice is off. The owner can turn it on with the voice setting in wendell.json.")),
+  join: () => Effect.fail(voiceError(OFF_MESSAGE)),
   leave: () => Effect.succeed(false),
   channelIn: () => Effect.succeed(Option.none()),
   calls: Effect.succeed([]),
-  inCall: () => Effect.succeed(false),
-  speak: () => Effect.succeed(false),
+  speak: () => Effect.succeed(Option.none()),
   utterances: Stream.empty,
-  heard: () => Effect.void,
-  callLines: () => Effect.succeed([]),
+  interruptions: Stream.empty,
 }
 
 const decodeWav = (base64: string) => new Uint8Array(Buffer.from(base64, "base64"))
@@ -91,8 +87,8 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
   const connections = yield* Ref.make(HashMap.empty<GuildId, Connection>())
   const aloneSince = yield* Ref.make(HashMap.empty<GuildId, number>())
   const lastHeard = yield* Ref.make(HashMap.empty<GuildId, number>())
-  const lines = yield* Ref.make(HashMap.empty<ChannelId, ReadonlyArray<string>>())
   const utterances = yield* Queue.sliding<Utterance>(UTTERANCE_BUFFER)
+  const interruptions = yield* Queue.sliding<GuildId>(INTERRUPTION_BUFFER)
 
   const send = (message: Protocol.Outgoing) =>
     Ref.get(inbox).pipe(
@@ -169,37 +165,17 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
     Effect.map((all) => [...all].map(([guildId, connection]) => ({ guildId, channelId: connection.channelId }))),
   )
 
-  const connectedGuildOf = (channelId: ChannelId) =>
-    Ref.get(connections).pipe(
-      Effect.map((all) =>
-        Option.fromUndefinedOr(
-          [...all].find(([, connection]) => Connection.$is("Connected")(connection) && connection.channelId === channelId)?.[0],
-        ),
-      ),
-    )
+  const speak = Effect.fn("Voice.speak")(function* (guildId: GuildId, text: string) {
+    const connection = yield* connectionOf(guildId)
 
-  const inCall = (channelId: ChannelId) => connectedGuildOf(channelId).pipe(Effect.map(Option.isSome))
-
-  const heard = Effect.fn("Voice.heard")(function* (channelId: ChannelId, speaker: string, text: string) {
-    yield* Ref.update(lines, (all) =>
-      HashMap.set(all, channelId, [...Option.getOrElse(HashMap.get(all, channelId), () => []), `${speaker}: ${text}`].slice(-CALL_LINES)),
-    )
-  })
-
-  const callLines = (channelId: ChannelId) =>
-    Ref.get(lines).pipe(Effect.map((all) => Option.getOrElse(HashMap.get(all, channelId), () => [])))
-
-  const speak = Effect.fn("Voice.speak")(function* (channelId: ChannelId, text: string) {
-    const guildId = yield* connectedGuildOf(channelId)
-
-    if (Option.isNone(guildId)) return false
+    if (Option.isNone(connection) || !Connection.$is("Connected")(connection.value)) return Option.none<string>()
 
     const names = new Map<string, string>()
 
     yield* Effect.forEach(
       Speech.mentionedUsers(text),
       (userId) =>
-        discord.member(guildId.value, userId).pipe(
+        discord.member(guildId, userId).pipe(
           Effect.tap((member) => Effect.sync(() => names.set(userId, member.name))),
           Effect.ignore,
         ),
@@ -208,12 +184,11 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
 
     const spoken = Speech.readable(text, names)
 
-    if (Option.isNone(spoken)) return false
+    if (Option.isNone(spoken)) return spoken
 
-    yield* heard(channelId, "Wendell (agent)", spoken.value)
-    yield* send({ type: "speak", guildId: guildId.value, id: randomUUID(), text: spoken.value })
+    yield* send({ type: "speak", guildId, id: randomUUID(), text: spoken.value })
 
-    return true
+    return spoken
   })
 
   const onMessage = (message: Protocol.Incoming) =>
@@ -254,10 +229,13 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
           yield* Ref.update(lastHeard, HashMap.set(guildId, yield* Clock.currentTimeMillis))
           yield* Queue.offer(utterances, { guildId, channelId: connection.value.channelId, userId, wav: decodeWav(wav), durationMs })
         }),
-      speech: ({ guildId, id, state, error }) =>
-        state === "failed"
-          ? Effect.logWarning("Could not speak in voice", { guildId, id, error })
-          : Effect.logDebug("Speech in voice", { guildId, id, state }),
+      speech: ({ guildId, id, state, error }) => {
+        if (state === "failed") return Effect.logWarning("Could not speak in voice", { guildId, id, error })
+
+        return Effect.logDebug("Speech in voice", { guildId, id, state }).pipe(
+          Effect.andThen(state === "interrupted" ? Queue.offer(interruptions, guildId) : Effect.void),
+        )
+      },
       log: ({ level, message: text, fields }) => {
         const log = { debug: Effect.logDebug, info: Effect.logInfo, warning: Effect.logWarning, error: Effect.logError }[level]
 
@@ -418,11 +396,9 @@ const make = Effect.fn("Voice.make")(function* (config: VoiceConfig.Resolved) {
     leave,
     channelIn,
     calls,
-    inCall,
     speak,
     utterances: Stream.fromQueue(utterances),
-    heard,
-    callLines,
+    interruptions: Stream.fromQueue(interruptions),
   })
 })
 
