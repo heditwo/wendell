@@ -152,6 +152,7 @@ Wendell can join a voice channel in a Discord server. He hears what people say t
 
 - When a reply answers speech, or a message from a person in the call, or mentions a person in the call, Wendell speaks it in the call. The agent can force speech or prevent it with `speak` in `wendell_reply`.
 - A reply that you heard in the call is not posted as text. Ask for the text ("Wendell, put that in the chat") and the agent posts it with `post` in `wendell_reply`. A reply with files, embeds, links, code or a mention is always posted, because speech cannot carry these. A reply is also posted when nothing in it can be spoken, and when a person who asked is not in the call.
+- When one reply answers speech and also a message from a person who is not in the call, Wendell speaks it and posts it.
 - A posted reply to speech goes to the conversation's channel. A posted reply to a message that you typed in the text chat of the voice channel goes to that chat.
 - Before he speaks, Wendell removes code blocks, links, markdown and emojis, and says names for mentions.
 - Other conversations in the same Discord server, and the DM of a person who is in the call, are told about the call one time for each call. From there, the agent can say a reply in the call with `speak: true`. The conversation of the call is told what he said. A DM can speak only in a call where the person of the DM is.
@@ -160,7 +161,8 @@ Wendell can join a voice channel in a Discord server. He hears what people say t
 
 ### When Wendell cannot hear
 
-- After he joins, Wendell transcribes one second of silence to learn if speech recognition works. When it fails, or when two transcriptions in a row fail, he says "I cannot hear the call: speech recognition is failing. Type in the chat instead." in the call, and posts it in the conversation of the call.
+- After he joins, Wendell transcribes one second of silence to learn if speech recognition works. When it fails, or when speech recognition fails for two things in a row that people said, he says "I cannot hear the call: speech recognition is failing. Type in the chat instead." in the call, and posts it in the conversation of the call.
+- When speech recognition fails for one thing that a person said, Wendell tries one more time. If it fails again, the agent is told with its next batch that this person said something that Wendell did not get.
 - When speech recognition works again, he posts "I can hear the call again."
 - When transcription is off, Wendell tells the agent that he does not hear the call.
 
