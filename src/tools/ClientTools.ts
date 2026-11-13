@@ -26,8 +26,14 @@ const ReplyArgs = Schema.Struct({
   }),
   speak: Schema.optional(Schema.Boolean).annotate({
     description:
-      "Only when you are in a voice call. true: also say this message in the call. false: do not say it. " +
+      "Only when you are in a voice call. true: say this message in the call. false: do not say it, only post it. " +
       "Leave it out to let Wendell decide: replies to speech, and to a person who is in the call, are spoken.",
+  }),
+  post: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Only when you are in a voice call. A message that is spoken to the people who asked is not posted as text. " +
+      "true: also post it. Use it only when a person asks for the text. " +
+      "Messages with a link, code, files, embeds or a mention are always posted.",
   }),
 })
 
@@ -252,8 +258,8 @@ export const make = (
   return [
     tool(
       "reply",
-      "Post a message in the current Discord conversation. In a voice call, the message is also spoken when it answers speech " +
-        "or a person in the call. This is the only way to speak. Call it at most once per batch of messages.",
+      "Post a message in the current Discord conversation. In a voice call, a message that answers speech or a person in the call " +
+        "is spoken and not posted. This is the only way to speak. Call it at most once per batch of messages.",
       ReplyArgs,
       (input) =>
         ToolCalls.Call.Reply({
@@ -263,6 +269,7 @@ export const make = (
           embeds: input.embeds ?? [],
           mention: Option.fromUndefinedOr(input.mention),
           speak: Option.fromUndefinedOr(input.speak),
+          post: input.post ?? false,
         }),
     ),
     tool(

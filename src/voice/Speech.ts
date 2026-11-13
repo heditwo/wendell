@@ -36,6 +36,9 @@ export const readable = (text: string, names: ReadonlyMap<string, string>): Opti
   return /[\p{L}\p{N}]/u.test(spoken) ? Option.some(spoken) : Option.none()
 }
 
+/** Links and code are left out of speech, so a message with them is also posted as text. */
+export const hasUnspokenParts = (text: string) => /`|https?:\/\//.test(text)
+
 /** What one person said in a call, after speech recognition. */
 export interface Heard {
   readonly userId: UserId

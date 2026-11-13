@@ -18,7 +18,7 @@ export const make = Effect.gen(function* () {
 
   const reply = Effect.fn("ReplyTools.reply")(function* (
     { remote, channelId }: ToolCalls.Target,
-    { text, replyTo, files, embeds, mention, speak }: ToolCalls.CallOf<"Reply">,
+    { text, replyTo, files, embeds, mention, speak, post }: ToolCalls.CallOf<"Reply">,
   ) {
     const attached =
       files.length === 0
@@ -38,12 +38,16 @@ export const make = Effect.gen(function* () {
     }
 
     const sent = yield* replies
-      .send(remote, channelId, { text, replyTo, files: attached, embeds, mention, speak })
+      .send(remote, channelId, { text, replyTo, files: attached, embeds, mention, speak, post })
       .pipe(Effect.mapError((error) => new ToolCalls.ToolFailure({ message: error.message })))
 
     const withFiles = attached.length === 0 ? "" : ` with ${attached.map((upload) => upload.name).join(", ")}`
 
-    if (Option.isNone(sent.posted)) return "Spoken in the voice call. The text could not be posted."
+    if (Option.isNone(sent.posted)) {
+      return sent.postFailed
+        ? "Spoken in the voice call. The text could not be posted."
+        : "Spoken in the voice call. Not posted as text: set post: true only when a person asks for the text."
+    }
 
     const { channelId: postedIn, messageId } = sent.posted.value
 

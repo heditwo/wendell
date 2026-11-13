@@ -16,18 +16,12 @@ export interface Conversation {
   readonly title: string
 }
 
-/** What one person said in a voice call, after speech recognition. */
-export interface Heard {
-  readonly speaker: string
-  readonly text: string
-}
-
 /** Where the newest input of a conversation came from. A reply goes back the same way. */
 export type Source = Data.TaggedEnum<{
   /** Messages typed in a text chat: the conversation's own channel, or the chat of its voice call. */
   Chat: { readonly channelId: ChannelId; readonly authors: ReadonlyArray<UserId> }
   /** Speech in the conversation's voice call. */
-  Speech: { readonly heard: ReadonlyArray<Heard> }
+  Speech: {}
   /** Wendell's own hand-offs and reports, and turns that he did not start, such as a schedule. */
   Own: {}
 }>

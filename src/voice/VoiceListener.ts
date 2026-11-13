@@ -179,7 +179,7 @@ export const layer = Layer.effectDiscard(
           lazyProgress: true,
           trigger: Option.none(),
           busy: batch.some((item) => item.waits) ? yield* busyModes.modeFor(home.remote, home.channelId) : "wait",
-          source: Source.Speech({ heard: batch.map(({ speaker, text }) => ({ speaker, text })) }),
+          source: Source.Speech(),
         },
         overheard.images,
       )

@@ -351,6 +351,7 @@ export const make = (sessions: Sessions.Interface) =>
           embeds: [],
           mention: Option.none(),
           speak: Option.none(),
+          post: false,
         })
         .pipe(
           Effect.andThen(

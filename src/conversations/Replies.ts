@@ -6,13 +6,10 @@ import { Recent } from "../inbound/Recent.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
 import type { ChannelId, MessageId, ServerName, UserId } from "../shared/Ids.ts"
 import { Calls } from "../voice/Calls.ts"
+import { Speech } from "../voice/Speech.ts"
 import { Activity } from "./Activity.ts"
-import { type Heard, Source } from "./Conversation.ts"
+import { Source } from "./Conversation.ts"
 
-const MESSAGE_LIMIT = 2_000
-const QUOTED_ITEMS = 3
-const QUOTED_TEXT = 200
-const QUOTED_NAME = 40
 const NOT_IN_CALL = "You are not in a voice call that this conversation can speak in."
 
 export interface Reply {
@@ -23,12 +20,16 @@ export interface Reply {
   readonly mention: Option.Option<UserId>
   /** True: also say it in the voice call. False: do not say it. None: decide from the newest input. */
   readonly speak: Option.Option<boolean>
+  /** Post the text also when the people that it answers heard it in the call. */
+  readonly post: boolean
 }
 
 export interface Sent {
   readonly spoken: boolean
-  /** None when the reply was spoken and the text post failed. */
+  /** None when the reply was only spoken. */
   readonly posted: Option.Option<{ readonly channelId: ChannelId; readonly messageId: MessageId }>
+  /** The reply was spoken, and the text post that it also needed failed. */
+  readonly postFailed: boolean
 }
 
 /** The message goes back to the agent. */
@@ -39,26 +40,16 @@ export class ReplyError extends Schema.TaggedError<ReplyError>()("Replies.ReplyE
 export interface Interface {
   /** Records where the newest input of a conversation came from. */
   readonly arrived: (server: ServerName, channelId: ChannelId, source: Source) => Effect.Effect<void>
-  /** Sends Wendell's reply for the conversation of `channelId`: as text, as speech in its voice call, or both. */
+  /**
+   * Sends Wendell's reply for the conversation of `channelId`. A reply that the people it answers heard in the
+   * voice call is not posted as text, unless `post` is set or it has parts that speech cannot carry.
+   */
   readonly send: (remote: Fleet.Remote, channelId: ChannelId, reply: Reply) => Effect.Effect<Sent, ReplyError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("wendell/Replies") {}
 
 const keyOf = (server: ServerName, channelId: ChannelId) => `${server}/${channelId}`
-
-const clip = (text: string, length: number) => {
-  const letters = [...text.replace(/\s+/g, " ").trim()]
-
-  return letters.length <= length ? letters.join("") : `${letters.slice(0, length - 1).join("")}…`
-}
-
-const plain = (text: string) => text.replace(/[\\*_~`|>[\]]/g, "\\$&").replaceAll("@", "@\u200b").replaceAll("<#", "<\u200b#")
-
-const quoteHeard = (heard: ReadonlyArray<Heard>) =>
-  heard
-    .slice(-QUOTED_ITEMS)
-    .map((item) => `-# ${plain(clip(item.speaker, QUOTED_NAME))}: ${plain(clip(item.text, QUOTED_TEXT))}`)
 
 export const layer: Layer.Layer<Service, never, Discord.Service | Activity.Service | Calls.Service | Recent.Service> = Layer.effect(
   Service,
@@ -144,16 +135,37 @@ export const layer: Layer.Layer<Service, never, Discord.Service | Activity.Servi
         onSome: ({ call, from }) => calls.say(call, reply.text, from),
       })
 
-      const heard = spoken ? Source.$match(source, { Chat: () => [], Speech: (speech) => quoteHeard(speech.heard), Own: () => [] }) : []
+      const listeners = yield* Option.match(target, {
+        onNone: () => Effect.succeed<ReadonlyArray<Discord.VoiceMember>>([]),
+        onSome: ({ call, from }) => (Option.isNone(from) ? Effect.succeed(people) : calls.people(call)),
+      })
 
-      const body = Option.match(reply.mention, {
+      // The people that the reply answers are all in the call, so they heard it.
+      const heardByAsker = Source.$match(source, {
+        Chat: ({ authors }) => authors.length > 0 && authors.every((userId) => listeners.some((person) => person.userId === userId)),
+        Speech: () => true,
+        Own: () => Option.exists(target, ({ from }) => Option.isNone(from)),
+      })
+
+      // Files, embeds, links and code cannot be spoken, and a ping needs a message.
+      const needsText =
+        reply.post ||
+        reply.files.length > 0 ||
+        reply.embeds.length > 0 ||
+        Option.isSome(reply.mention) ||
+        Speech.hasUnspokenParts(reply.text)
+
+      if (spoken && heardByAsker && !needsText) {
+        yield* activity.spoke(channelId)
+        yield* Effect.logInfo("Sent a reply", { server: remote.name, channelId, spoken, postedIn: undefined })
+
+        return { spoken, posted: Option.none(), postFailed: false } satisfies Sent
+      }
+
+      const content = Option.match(reply.mention, {
         onNone: () => reply.text,
         onSome: (userId) => (reply.text.includes(`<@${userId}>`) ? reply.text : `<@${userId}> ${reply.text}`),
       })
-
-      const quoted = heard.length === 0 ? body : `${heard.join("\n")}\n${body}`
-      const quotesHeard = heard.length > 0 && quoted.length <= MESSAGE_LIMIT
-      const content = quotesHeard ? quoted : body
 
       const replyTo = Option.match(replied, {
         onNone: () => (textChannel === channelId ? reply.replyTo : Option.none()),
@@ -180,8 +192,6 @@ export const layer: Layer.Layer<Service, never, Discord.Service | Activity.Servi
         })
       }
 
-      if (quotesHeard && Option.isSome(messageId)) yield* arrived(remote.name, channelId, Source.Speech({ heard: [] }))
-
       yield* activity.spoke(channelId)
 
       if (textChannel !== channelId && Option.isSome(messageId)) yield* activity.spoke(textChannel)
@@ -196,6 +206,7 @@ export const layer: Layer.Layer<Service, never, Discord.Service | Activity.Servi
       return {
         spoken,
         posted: Option.map(messageId, (id) => ({ channelId: textChannel, messageId: id })),
+        postFailed: Option.isNone(messageId),
       } satisfies Sent
     })
 

@@ -454,10 +454,10 @@ const make = Effect.gen(function* () {
 
     const text = callBlock(
       `${whoIsIn(call, names)} The call belongs to this conversation: what people say in it comes here as <speech>.`,
-      "When you answer speech, or a message from a person who is in the call, your wendell_reply is spoken in the call and also posted as text. " +
-        "To speak another reply, set speak: true. To post without speech, set speak: false.",
+      "When you answer speech, or a message from a person who is in the call, your wendell_reply is spoken in the call and not posted as text. " +
+        "When a person asks for the text, set post: true. To speak another reply, set speak: true. To post without speech, set speak: false.",
       "For the call, write one to three short, plain sentences, without markdown or lists. " +
-        "Code, links and files are not spoken: people see them in the posted text, so say that they are there.",
+        "Code, links and files are not spoken. A reply that has them is also posted, so say that they are in the chat.",
       ...hearingNote(state),
     )
 

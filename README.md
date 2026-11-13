@@ -151,8 +151,9 @@ Wendell can join a voice channel in a Discord server. He hears what people say t
 ### What Wendell says and posts
 
 - When a reply answers speech, or a message from a person in the call, or mentions a person in the call, Wendell speaks it in the call. The agent can force speech or prevent it with `speak` in `wendell_reply`.
-- Every reply is also posted as text. A reply to speech is posted in the conversation's channel, and starts with what Wendell heard, as small lines (`-# name: text`, at most 3). A reply to a message that you typed in the text chat of the voice channel is posted in that chat.
-- Before he speaks, Wendell removes code blocks, links, markdown and emojis, and says names for mentions. Files, embeds, links and code are in the posted text only.
+- A reply that you heard in the call is not posted as text. Ask for the text ("Wendell, put that in the chat") and the agent posts it with `post` in `wendell_reply`. A reply with files, embeds, links, code or a mention is always posted, because speech cannot carry these. A reply is also posted when nothing in it can be spoken, and when a person who asked is not in the call.
+- A posted reply to speech goes to the conversation's channel. A posted reply to a message that you typed in the text chat of the voice channel goes to that chat.
+- Before he speaks, Wendell removes code blocks, links, markdown and emojis, and says names for mentions.
 - Other conversations in the same Discord server, and the DM of a person who is in the call, are told about the call one time for each call. From there, the agent can say a reply in the call with `speak: true`. The conversation of the call is told what he said. A DM can speak only in a call where the person of the DM is.
 - When someone talks while Wendell speaks, he stops speaking, and the agent is told with its next batch. Wendell cannot tell people from bots when someone talks over him: any speech stops his speech.
 - When the agent has nothing to say, it writes `(quiet)`. Wendell never posts or speaks text that starts with `(quiet)`.
@@ -249,7 +250,7 @@ The agent can post in Discord only through these tools.
 
 | Tool | Use |
 | --- | --- |
-| `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping), `speak` (in a voice call: `true` also says the message in the call, `false` does not say it, no value lets Wendell decide). See [Voice calls](#voice-calls). |
+| `wendell_reply` | Post a message. Fields: `text` (required), `reply_to` (a message ID), `files` (paths on the server), `embeds` (Discord embeds, at most 10 and 6000 characters together), `mention` (one user ID to ping), `speak` (in a voice call: `true` says the message in the call, `false` only posts it, no value lets Wendell decide), `post` (in a voice call: `true` also posts a message that was spoken). See [Voice calls](#voice-calls). |
 | `wendell_react` | Add an emoji reaction to a message. Custom emojis use `name:id`. |
 | `wendell_start_task` | Move longer work into a thread, or start a sub-task. |
 | `wendell_continue_task` | Send a request to an existing task. |
