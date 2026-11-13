@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Schema } from "effect"
+import { Effect, FileSystem, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import path from "node:path"
 import { Files } from "../shared/Files.ts"
@@ -55,9 +55,17 @@ export const make = Effect.fn("CommandProvider.make")(function* (config: Config)
       if (converted !== 0) return yield* new Provider.TranscriptionError({ step: "ffmpeg", cause: `exit code ${converted}` })
     }
 
-    const output = yield* spawner
-      .string(ChildProcess.make(program, args.map((arg) => arg.replaceAll("{file}", file))))
-      .pipe(Effect.mapError(failed(program)))
+    const { output, code } = yield* Effect.gen(function* () {
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(program, args.map((arg) => arg.replaceAll("{file}", file)), { stderr: "ignore" }),
+      )
+
+      const text = yield* handle.stdout.pipe(Stream.decodeText, Stream.mkString)
+
+      return { output: text, code: yield* handle.exitCode }
+    }).pipe(Effect.scoped, Effect.mapError(failed(program)))
+
+    if (code !== 0) return yield* new Provider.TranscriptionError({ step: program, cause: `exit code ${code}` })
 
     return cleanOutput(output, ignore)
   }, Effect.scoped)

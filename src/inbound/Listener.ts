@@ -2,12 +2,14 @@ import { Duration, Effect, Layer, Option, Stream } from "effect"
 import { Settings } from "../config/Settings.ts"
 import { Activity } from "../conversations/Activity.ts"
 import { Conversations } from "../conversations/Conversations.ts"
+import { Source } from "../conversations/Conversation.ts"
 import { Places } from "../conversations/Places.ts"
 import { Discord } from "../discord/Discord.ts"
 import { Capture } from "../memory/Capture.ts"
 import { Recollection } from "../memory/Recollection.ts"
 import { BusyModes } from "../modes/BusyModes.ts"
 import { Fleet } from "../opencode/Fleet.ts"
+import { Batcher } from "../shared/Batcher.ts"
 import type { ChannelId } from "../shared/Ids.ts"
 import { Attachments } from "./Attachments.ts"
 import { Elsewhere } from "./Elsewhere.ts"
@@ -18,17 +20,20 @@ import { Room } from "./Room.ts"
 import { Routing } from "./Routing.ts"
 import { Screen } from "./Screen.ts"
 import { Transcriber } from "../transcription/Transcriber.ts"
-import { Speech } from "../voice/Speech.ts"
-import { Voice } from "../voice/Voice.ts"
+import { Calls } from "../voice/Calls.ts"
 
 const MAX_BATCH = 20
 const GROUP_BUFFER = 64
 const IDLE_CHANNEL = Duration.minutes(30)
+const PROMPT_WINDOW = Duration.millis(500)
+const CALL_SKIP_BELOW = 0.5
 
 interface Item extends Omit<Inbound.Routed, "files"> {
   readonly place: Places.Place
   /** The screen's score for the message is at least `WENDELL_ENGAGE_ABOVE`. */
   readonly confident: boolean
+  /** The author is in the voice call of the conversation. */
+  readonly inCall: boolean
 }
 
 export const layer = Layer.effectDiscard(
@@ -49,7 +54,7 @@ export const layer = Layer.effectDiscard(
     const recollection = yield* Recollection.Service
     const room = yield* Room.Service
     const capture = yield* Capture.Service
-    const voice = yield* Voice.Service
+    const calls = yield* Calls.Service
 
     const following = Effect.fn("Listener.following")(function* (channelId: ChannelId, place: Places.Place) {
       if (yield* activity.spokeWithin(channelId, settings.followWindow)) return true
@@ -74,34 +79,83 @@ export const layer = Layer.effectDiscard(
       }
 
       const place = yield* places.forMessage(message)
+      const conversation = place.conversation
+      const call = yield* calls.ofHome(conversation.remote.name, conversation.channelId)
+
+      const people = Option.isSome(call) && !message.authorIsBot ? yield* calls.people(call.value) : []
+      const inCall = people.some((person) => person.userId === message.authorId)
 
       const addressed =
         Inbound.isDirect(message) || message.mentionsMe || message.repliesToMe || Routing.addressesByName(Inbound.words(message))
 
       const quiet = message.authorIsBot || addressed
 
-      const candidate = Routing.classify({
-        fromBot: message.authorIsBot,
-        addressed,
-        named: !quiet && Routing.mentionsName(Inbound.words(message)),
-        spoken: !quiet && Option.isSome(message.transcript),
-        inTask: Option.isSome(place.task),
-        inCall: false,
-        alone: false,
-        following: quiet ? false : yield* following(message.channelId, place),
-        goal: quiet ? Option.none() : place.goal,
-      })
+      // In a task thread, every message is about the task, so the task's rule stays.
+      const talksInCall = inCall && !quiet && Option.isNone(place.task)
+
+      const candidate = Routing.classify(
+        talksInCall
+          ? {
+              fromBot: false,
+              addressed: false,
+              named: false,
+              spoken: false,
+              inTask: false,
+              inCall: true,
+              // In another channel, a person who is alone in the call can also write to people who are not in it.
+              alone: people.length === 1 && Option.exists(call, (found) => found.channelId === message.channelId),
+              following: false,
+              goal: Option.none(),
+            }
+          : {
+              fromBot: message.authorIsBot,
+              addressed,
+              named: !quiet && Routing.mentionsName(Inbound.words(message)),
+              spoken: !quiet && Option.isSome(message.transcript),
+              inTask: Option.isSome(place.task),
+              inCall: false,
+              alone: false,
+              following: quiet ? false : yield* following(message.channelId, place),
+              goal: quiet ? Option.none() : place.goal,
+            },
+      )
+
+      const screened = (question: string) =>
+        talksInCall && Option.isSome(call)
+          ? Effect.gen(function* () {
+              const lines = yield* calls.lines(call.value)
+
+              return yield* screen.screenTranscript(
+                conversation.remote,
+                message.channelId,
+                [...lines, `${message.authorName} (typed): ${Inbound.plainText(message)}`].join("\n"),
+                question,
+                (yield* calls.attentive(call.value)) ? undefined : CALL_SKIP_BELOW,
+              )
+            })
+          : screen.screen(conversation.remote, message, question)
 
       const verdict = yield* Option.match(Routing.screenQuestion(candidate), {
         onNone: () => Effect.succeed<Screen.Verdict>({ skip: false, confident: false }),
-        onSome: (question) => screen.screen(place.conversation.remote, message, question),
+        onSome: screened,
       })
 
       const routeTaken = verdict.skip ? Routing.Route.Ignored() : candidate
 
-      if (!message.authorIsBot && Routing.Route.$is("Ignored")(routeTaken)) yield* room.overheard(message)
+      if (Option.isSome(call) && inCall) {
+        yield* calls.heard(
+          call.value,
+          { speaker: message.authorName, text: Inbound.plainText(message), typed: true },
+          !verdict.skip,
+        )
+      }
 
-      return { message, place, route: routeTaken, confident: verdict.confident } satisfies Item
+      // A skipped line of a person in the call is already in the call's context.
+      if (!message.authorIsBot && !inCall && Routing.Route.$is("Ignored")(routeTaken)) {
+        yield* room.overheard(message.channelId === conversation.channelId ? message : { ...message, channelId: conversation.channelId })
+      }
+
+      return { message, place, route: routeTaken, confident: verdict.confident, inCall } satisfies Item
     })
 
     const deliver = Effect.fn("Listener.deliver")(function* (channelId: ChannelId, batch: ReadonlyArray<Item>) {
@@ -163,11 +217,20 @@ export const layer = Layer.effectDiscard(
       yield* Effect.forkDetach(typeAtOnce)
 
       const overheard = yield* room.take(conversation)
-      const inCall = yield* voice.inCall(channelId)
+      const call = yield* calls.ofHome(conversation.remote.name, conversation.channelId)
+      const notice = yield* calls.notice(conversation)
+      const missed = Option.isSome(call) ? yield* calls.takeOverheard(call.value) : []
 
       yield* conversations.deliver(
         conversation,
-        [...recalled.blocks, ...overheard.blocks, ...found.blocks, ...(inCall ? [Speech.callNote] : []), Inbound.renderBatch(routed)].join("\n\n"),
+        [
+          ...recalled.blocks,
+          ...overheard.blocks,
+          ...found.blocks,
+          ...notice.blocks,
+          ...missed,
+          Inbound.renderBatch(routed),
+        ].join("\n\n"),
         {
           expectReply: batch.some(({ route }) => Routing.expectsReply(route)),
           progress: waiting.length > 0,
@@ -175,13 +238,18 @@ export const layer = Layer.effectDiscard(
           typeAtOnce,
           trigger,
           // Only messages that ask for Wendell's attention may interrupt him; ambient chatter waits.
-          busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, channelId) : "wait",
+          busy: waiting.length > 0 ? yield* busyModes.modeFor(conversation.remote, conversation.channelId) : "wait",
+          source: Source.Chat({ channelId, authors: people.map(({ userId }) => userId) }),
+          chat: channelId,
         },
         [...overheard.images, ...found.images, ...routed.flatMap(({ files }) => Attachments.images(files))],
       )
       yield* recalled.delivered
       yield* found.delivered
-      yield* capture.touch(conversation, first.message.id)
+      yield* notice.delivered
+
+      if (first.message.channelId === conversation.channelId) yield* capture.touch(conversation, first.message.id)
+
       yield* Effect.logInfo("Delivered messages", {
         server: conversation.remote.name,
         kind: conversation.kind,
@@ -204,7 +272,10 @@ export const layer = Layer.effectDiscard(
             onSome: (item: Item) => (Routing.isActionable(item.route) ? Stream.succeed(item) : Stream.empty),
           }),
         ),
-        Stream.groupedWithin(MAX_BATCH, settings.batchWindow),
+        Batcher.batches<Item>({
+          max: MAX_BATCH,
+          windowOf: (item) => (Routing.Route.$is("Addressed")(item.route) || item.inCall ? PROMPT_WINDOW : settings.batchWindow),
+        }),
         Stream.mapEffect((batch) =>
           deliver(channelId, batch).pipe(
             Effect.catch((cause) => Effect.logError("Could not deliver messages", { channelId, cause })),

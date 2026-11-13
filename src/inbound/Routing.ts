@@ -141,7 +141,7 @@ export const expectsReply: (route: Route) => boolean = Route.$match({
   Named: () => false,
   Spoken: () => false,
   Task: () => false,
-  Call: () => false,
+  Call: ({ alone }) => alone,
   FollowUp: () => false,
   Watched: () => false,
   Ignored: () => false,

@@ -6,13 +6,12 @@ import type { Fleet } from "../opencode/Fleet.ts"
 import { SessionKey } from "../opencode/SessionKey.ts"
 import type { ChannelId, MessageId } from "../shared/Ids.ts"
 import { Tasks } from "../tasks/Tasks.ts"
-import { Speech } from "../voice/Speech.ts"
-import { Voice } from "../voice/Voice.ts"
 import { Activity } from "./Activity.ts"
 import { BlockedTurns } from "./BlockedTurns.ts"
 import { ContextSize } from "./ContextSize.ts"
-import type { Conversation, Turn } from "./Conversation.ts"
+import { type Conversation, Source, type Turn } from "./Conversation.ts"
 import { Progress } from "./Progress.ts"
+import { Replies } from "./Replies.ts"
 import { Sessions } from "./Sessions.ts"
 
 const TURN_TIMEOUT = Duration.minutes(30)
@@ -26,6 +25,9 @@ const BLOCKED_NOTICE = "The model's provider blocked my answer. I removed those 
 const BLOCKED_AGAIN_NOTICE =
   "The model's provider blocked my answer again.\n-# If it continues, something earlier in this conversation causes it. Then select a model from another provider with /model."
 
+// The persona's way to stay quiet. Text that starts with it is never posted or spoken.
+const QUIET_MARKER = /^\(\s*quiet\s*\)/i
+
 /**
  * Follows turns: shows 👀, typing and a status line, posts errors, and posts the turn's text when someone
  * waits and Wendell said nothing. It also follows turns that Wendell did not start, such as a fired schedule.
@@ -36,7 +38,7 @@ export const make = (sessions: Sessions.Interface) =>
     const contextLimits = yield* ContextLimits.Service
     const activity = yield* Activity.Service
     const tasks = yield* Tasks.Service
-    const voice = yield* Voice.Service
+    const replies = yield* Replies.Service
     const scope = yield* Effect.scope
     const ours = yield* Ref.make(HashSet.empty<SessionMessage.ID>())
     const watching = yield* Ref.make(HashMap.empty<string, number>())
@@ -128,6 +130,7 @@ export const make = (sessions: Sessions.Interface) =>
       ready: Deferred.Deferred<void>,
     ) {
       const channelId = conversation.channelId
+      const chat = turn.chat ?? channelId
       const foreign = Option.isNone(inboxID)
       const delivered = yield* Ref.make(false)
 
@@ -165,7 +168,7 @@ export const make = (sessions: Sessions.Interface) =>
 
         yield* acknowledge
 
-        const fiber = yield* ignore(discord.typing(channelId)).pipe(Effect.repeat(Schedule.spaced(TYPING_EVERY)), Effect.forkIn(scope))
+        const fiber = yield* ignore(discord.typing(chat)).pipe(Effect.repeat(Schedule.spaced(TYPING_EVERY)), Effect.forkIn(scope))
 
         yield* Ref.set(typing, Option.some(fiber))
 
@@ -174,6 +177,7 @@ export const make = (sessions: Sessions.Interface) =>
 
       const onDelivered = Effect.gen(function* () {
         yield* Ref.set(delivered, true)
+        yield* replies.arrived(conversation.remote.name, channelId, turn.source ?? Source.Own())
 
         if (turn.progress) yield* acknowledge
 
@@ -228,8 +232,8 @@ export const make = (sessions: Sessions.Interface) =>
           const text = `-# ${label.value}…`
 
           const id = yield* Option.match(current.id, {
-            onNone: () => discord.send(channelId, text, Option.none()).pipe(Effect.map(Option.some)),
-            onSome: (messageId) => discord.edit(channelId, messageId, text).pipe(Effect.as(Option.some(messageId))),
+            onNone: () => discord.send(chat, text, Option.none()).pipe(Effect.map(Option.some)),
+            onSome: (messageId) => discord.edit(chat, messageId, text).pipe(Effect.as(Option.some(messageId))),
           }).pipe(Effect.orElseSucceed(() => current.id))
 
           yield* Ref.set(status, { id, label: label.value, at: now })
@@ -299,7 +303,7 @@ export const make = (sessions: Sessions.Interface) =>
               yield* Option.match(yield* Ref.get(typing), { onNone: () => Effect.void, onSome: Fiber.interrupt })
               yield* Option.match((yield* Ref.get(status)).id, {
                 onNone: () => Effect.void,
-                onSome: (messageId) => ignore(discord.remove(channelId, messageId)),
+                onSome: (messageId) => ignore(discord.remove(chat, messageId)),
               })
               yield* Option.match(turn.trigger, {
                 onNone: () => Effect.void,
@@ -327,7 +331,7 @@ export const make = (sessions: Sessions.Interface) =>
           onSome: (inARow) => (inARow > 1 ? BLOCKED_AGAIN_NOTICE : BLOCKED_NOTICE),
         })
 
-        yield* discord.send(channelId, notice, Option.none())
+        yield* discord.send(chat, notice, Option.none())
         yield* activity.spoke(channelId)
 
         return
@@ -337,17 +341,28 @@ export const make = (sessions: Sessions.Interface) =>
 
       const text = yield* lastText(conversation, sessionID)
 
-      if (Option.isNone(text)) return
+      if (Option.isNone(text) || QUIET_MARKER.test(text.value)) return
 
-      const spoken = yield* voice.speak(channelId, text.value)
-
-      if (!spoken || Speech.hasUnspokenParts(text.value)) yield* discord.send(channelId, text.value, Option.none())
-
-      yield* activity.spoke(channelId)
-      yield* Effect.logInfo("Posted the turn text because Wendell did not call wendell_reply", {
-        server: conversation.remote.name,
-        channelId,
-      })
+      yield* replies
+        .send(conversation.remote, channelId, {
+          text: text.value,
+          replyTo: Option.none(),
+          files: [],
+          embeds: [],
+          mention: Option.none(),
+          speak: Option.none(),
+        })
+        .pipe(
+          Effect.andThen(
+            Effect.logInfo("Posted the turn text because Wendell did not call wendell_reply", {
+              server: conversation.remote.name,
+              channelId,
+            }),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("Could not post the turn text", { server: conversation.remote.name, channelId, reason: error.message }),
+          ),
+        )
     })
 
     /**
