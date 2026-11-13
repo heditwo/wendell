@@ -61,6 +61,7 @@ flowchart LR
 - Wendell attaches his Discord tools to each server through OpenCode's client MCP (see [Discord tools](#discord-tools)). You do not install anything on the server.
 - The agent can post in Discord only through these tools. When someone addresses Wendell and the turn ends without a reply, Wendell posts the turn's final text.
 - Some turns start without a Discord message, for example when a schedule fires or a background image is ready. Wendell posts an error if such a turn fails, but he does not post the turn's text.
+- A model's provider can block an answer with a content filter. The filter reads the full session, so the blocked message would also block each later answer. Thus Wendell removes the blocked turns from the session, and says so if someone waited for the answer. Earlier messages stay. If the provider blocks the next turns too, Wendell tells you to select a model from another provider with `/model`.
 - After each turn, Wendell reads the size of the session's context. When it reaches the limit (`/context limit:` for the conversation, else `contextLimit`, default 256k tokens), he tells OpenCode to compact the session. The limit is the same for every model. OpenCode's own automatic compaction stays on for models with a smaller context.
 - Wendell archives his sessions, so the OpenCode desktop does not list them. Archived sessions still work. Set `hideSessions` to `false` to see them.
 

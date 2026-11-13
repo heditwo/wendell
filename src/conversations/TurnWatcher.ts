@@ -1,5 +1,5 @@
 import { type Session, SessionMessage } from "@opencode/client/effect"
-import { Clock, Deferred, Duration, Effect, Fiber, HashMap, HashSet, Option, Ref, Schedule, Stream } from "effect"
+import { Clock, Deferred, Duration, Effect, Fiber, HashMap, HashSet, Option, Ref, Schedule, Semaphore, Stream } from "effect"
 import { ContextLimits } from "../modes/ContextLimits.ts"
 import { Discord } from "../discord/Discord.ts"
 import type { Fleet } from "../opencode/Fleet.ts"
@@ -9,6 +9,7 @@ import { Tasks } from "../tasks/Tasks.ts"
 import { Speech } from "../voice/Speech.ts"
 import { Voice } from "../voice/Voice.ts"
 import { Activity } from "./Activity.ts"
+import { BlockedTurns } from "./BlockedTurns.ts"
 import { ContextSize } from "./ContextSize.ts"
 import type { Conversation, Turn } from "./Conversation.ts"
 import { Progress } from "./Progress.ts"
@@ -19,6 +20,11 @@ const TYPING_EVERY = Duration.seconds(8)
 const STATUS_EDIT_EVERY = 1_500
 const WATCHING = "👀"
 const LISTENER_RESTART = Duration.seconds(5)
+
+const BLOCKED_NOTICE = "The model's provider blocked my answer. I removed those messages from my context, so they do not block my next answers."
+
+const BLOCKED_AGAIN_NOTICE =
+  "The model's provider blocked my answer again.\n-# If it continues, something earlier in this conversation causes it. Then select a model from another provider with /model."
 
 /**
  * Follows turns: shows 👀, typing and a status line, posts errors, and posts the turn's text when someone
@@ -34,6 +40,9 @@ export const make = (sessions: Sessions.Interface) =>
     const scope = yield* Effect.scope
     const ours = yield* Ref.make(HashSet.empty<SessionMessage.ID>())
     const watching = yield* Ref.make(HashMap.empty<string, number>())
+    const removing = yield* Semaphore.make(1)
+    // When the provider blocks turn after turn, the cause is not in the removed turns.
+    const blockedInARow = yield* Ref.make(HashMap.empty<string, number>())
 
     const ignore = <A, E>(effect: Effect.Effect<A, E>) => Effect.ignore(effect)
 
@@ -55,6 +64,39 @@ export const make = (sessions: Sessions.Interface) =>
         limit,
       })
     }, Effect.catch((cause) => Effect.logWarning("Could not compact a session", { cause })))
+
+    /**
+     * Removes the blocked turns of a session. Returns how many times in a row this session was blocked, or none
+     * when no turn was removed.
+     *
+     * Each message of a turn has its own watcher. One at a time, so the second finds the turn already removed
+     * and does not count it again.
+     */
+    const removeBlocked = Effect.fn("TurnWatcher.removeBlocked")(
+      function* (conversation: Conversation, sessionID: Session.ID) {
+        const key = Sessions.keyOf(conversation.remote.name, sessionID)
+        const turns = yield* BlockedTurns.remove(conversation.remote.client, sessionID)
+        const before = Option.getOrElse(HashMap.get(yield* Ref.get(blockedInARow), key), () => 0)
+
+        // Nothing to remove: another watcher of the same turn removed it, or the session shows no blocked turn.
+        if (turns === 0) return before === 0 ? Option.none<number>() : Option.some(before)
+
+        yield* Ref.update(blockedInARow, HashMap.set(key, before + 1))
+        yield* Effect.logInfo("Removed turns that the model's provider blocked", {
+          server: conversation.remote.name,
+          channelId: conversation.channelId,
+          turns,
+          inARow: before + 1,
+        })
+
+        return Option.some(before + 1)
+      },
+      (effect) =>
+        effect.pipe(
+          Semaphore.withPermits(removing, 1),
+          Effect.catch((cause) => Effect.logWarning("Could not remove a blocked turn", { cause }).pipe(Effect.as(Option.none<number>()))),
+        ),
+    )
 
     const lastText = Effect.fn("Conversations.lastText")(function* (conversation: Conversation, sessionID: Session.ID) {
       const page = yield* conversation.remote.client.message.list({
@@ -97,7 +139,7 @@ export const make = (sessions: Sessions.Interface) =>
 
       const typing = yield* Ref.make(Option.none<Fiber.Fiber<unknown>>())
       const outcome = yield* Deferred.make<void>()
-      const failure = yield* Ref.make(Option.none<string>())
+      const failure = yield* Ref.make(Option.none<{ readonly type: string; readonly message: string }>())
 
       const acknowledged = yield* Ref.make(false)
       // After a reaction, closing text from the model is not posted, so it must not show typing.
@@ -243,7 +285,9 @@ export const make = (sessions: Sessions.Interface) =>
 
               if (event.data.sessionID !== sessionID) return
 
-              if (event.type === "session.execution.failed") yield* Ref.set(failure, Option.some(event.data.error.message))
+              if (event.type === "session.execution.failed") {
+                yield* Ref.set(failure, Option.some({ type: event.data.error.type, message: event.data.error.message }))
+              }
 
               yield* Deferred.succeed(outcome, undefined)
             }),
@@ -268,10 +312,22 @@ export const make = (sessions: Sessions.Interface) =>
       const failed = yield* Ref.get(failure)
 
       yield* tasks.touch(channelId).pipe(Effect.ignore)
-      yield* compactIfFull(conversation, sessionID).pipe(Effect.forkIn(scope))
+
+      const blocked = Option.exists(failed, (error) => error.type === BlockedTurns.ERROR_TYPE)
+      const blockedInARowNow = blocked ? yield* removeBlocked(conversation, sessionID) : Option.none<number>()
+
+      if (Option.isNone(failed)) yield* Ref.update(blockedInARow, HashMap.remove(Sessions.keyOf(conversation.remote.name, sessionID)))
+
+      // A compaction keeps the session busy, and the blocked turn cannot be removed during that time.
+      if (!blocked) yield* compactIfFull(conversation, sessionID).pipe(Effect.forkIn(scope))
 
       if (Option.isSome(failed) && (turn.expectReply || turn.progress || foreign)) {
-        yield* discord.send(channelId, `That did not work: ${failed.value}\n-# If it keeps happening, try another model with /model.`, Option.none())
+        const notice = Option.match(blockedInARowNow, {
+          onNone: () => `That did not work: ${failed.value.message}\n-# If it keeps happening, try another model with /model.`,
+          onSome: (inARow) => (inARow > 1 ? BLOCKED_AGAIN_NOTICE : BLOCKED_NOTICE),
+        })
+
+        yield* discord.send(channelId, notice, Option.none())
         yield* activity.spoke(channelId)
 
         return

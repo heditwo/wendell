@@ -161,13 +161,16 @@ export const layer = Layer.effect(
           // costs less than never showing it again, so a reconnect clears every entry of the server.
           const forgetServer = forgetWhere((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes("/"))
 
-          return yield* remote.client.event.subscribe({ types: ["session.compaction.ended", "session.deleted"] }).pipe(
+          return yield* remote.client.event.subscribe({ types: ["session.compaction.ended", "session.deleted", "session.revert.committed"] }).pipe(
             Stream.runForEach((event) => {
               if (event.type === "server.connected") {
                 return Ref.getAndSet(connectedBefore, true).pipe(Effect.flatMap((again) => (again ? forgetServer : Effect.void)))
               }
 
-              if (event.type !== "session.compaction.ended" && event.type !== "session.deleted") return Effect.void
+              // A committed revert removes messages, and the notes that came with them.
+              if (event.type !== "session.compaction.ended" && event.type !== "session.deleted" && event.type !== "session.revert.committed") {
+                return Effect.void
+              }
 
               return Option.match(SessionKey.channelOf(event.data.sessionID), {
                 onNone: () => Effect.void,
