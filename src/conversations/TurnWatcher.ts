@@ -128,6 +128,7 @@ export const make = (sessions: Sessions.Interface) =>
       turn: Turn,
       since: number,
       ready: Deferred.Deferred<void>,
+      turnKey: string,
     ) {
       const channelId = conversation.channelId
       const chat = turn.chat ?? channelId
@@ -177,7 +178,7 @@ export const make = (sessions: Sessions.Interface) =>
 
       const onDelivered = Effect.gen(function* () {
         yield* Ref.set(delivered, true)
-        yield* replies.arrived(conversation.remote.name, channelId, turn.source ?? Source.Own())
+        yield* replies.arrived(conversation.remote.name, channelId, turnKey, turn.source ?? Source.Own())
 
         if (turn.progress) yield* acknowledge
 
@@ -379,13 +380,15 @@ export const make = (sessions: Sessions.Interface) =>
       ready: Deferred.Deferred<void>,
     ) => {
       const key = Sessions.keyOf(conversation.remote.name, sessionID)
+      const turnKey = crypto.randomUUID()
 
       const change = (delta: number) =>
         Ref.update(watching, (all) => HashMap.set(all, key, Option.getOrElse(HashMap.get(all, key), () => 0) + delta))
 
       return change(1).pipe(
-        Effect.andThen(watchTurn(conversation, sessionID, inboxID, turn, since, ready)),
+        Effect.andThen(watchTurn(conversation, sessionID, inboxID, turn, since, ready, turnKey)),
         Effect.ensuring(change(-1)),
+        Effect.ensuring(replies.ended(conversation.remote.name, conversation.channelId, turnKey)),
         Effect.catch((cause) =>
           Effect.logWarning("Turn watcher failed", { server: conversation.remote.name, channelId: conversation.channelId, cause }),
         ),
