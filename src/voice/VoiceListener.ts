@@ -1,4 +1,4 @@
-import { Duration, Effect, Layer, Option, Stream } from "effect"
+import { Cause, Duration, Effect, Layer, Option, Stream } from "effect"
 import { Conversations } from "../conversations/Conversations.ts"
 import { Source } from "../conversations/Conversation.ts"
 import { Discord } from "../discord/Discord.ts"
@@ -59,16 +59,27 @@ export const layer = Layer.effectDiscard(
       return yield* Effect.logWarning("Voice is on, but transcription is off, so Wendell does not hear what people say in calls")
     }
 
-    // None: the provider failed or did not answer. Some: its text, which is empty for silence.
-    const transcribe = (active: Provider.Provider, utterance: Voice.Utterance) =>
+    const attempt = (active: Provider.Provider, utterance: Voice.Utterance) =>
       active.transcribe({ name: "utterance.wav", contentType: Option.some("audio/wav"), data: utterance.wav }).pipe(
         Effect.timeout(TRANSCRIBE_TIMEOUT),
-        Effect.map((text) => Option.some(text.trim())),
-        Effect.catch((cause) =>
-          Effect.logWarning("Could not transcribe speech in voice", { channelId: utterance.channelId, cause }).pipe(
-            Effect.as(Option.none<string>()),
-          ),
+        Effect.map((text) => text.trim()),
+        Effect.tapError((cause) =>
+          Effect.logWarning("Could not transcribe speech in voice", { channelId: utterance.channelId, cause }),
         ),
+      )
+
+    // None: the provider failed or did not answer. Some: its text, which is empty for silence.
+    // A provider failure is tried once more, because the provider can crash on one utterance and work on the next.
+    // A timeout is not, because the utterances of a guild wait for each other. Neither is a call that already fails.
+    const transcribe = (active: Provider.Provider, utterance: Voice.Utterance, call: Calls.Call) =>
+      attempt(active, utterance).pipe(
+        Effect.retry({
+          times: 1,
+          while: (error) =>
+            Cause.isTimeoutError(error) ? Effect.succeed(false) : Effect.map(calls.hearing(call), (state) => !Calls.Hearing.$is("Failing")(state)),
+        }),
+        Effect.map(Option.some),
+        Effect.catch(() => Effect.succeed(Option.none<string>())),
       )
 
     const hear = Effect.fn("VoiceListener.hear")(function* (utterance: Voice.Utterance) {
@@ -83,11 +94,15 @@ export const layer = Layer.effectDiscard(
       if (Option.isNone(found)) return Option.none<Item>()
 
       const call = found.value
-      const transcript = yield* transcribe(provider.value, utterance)
+      const transcript = yield* transcribe(provider.value, utterance, call)
 
       yield* calls.transcribed(call, Option.isSome(transcript))
 
-      if (Option.isNone(transcript)) return Option.none<Item>()
+      if (Option.isNone(transcript)) {
+        yield* calls.missed(call, speaker.name)
+
+        return Option.none<Item>()
+      }
 
       const text = transcript.value
 

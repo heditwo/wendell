@@ -72,6 +72,8 @@ export interface Interface {
    * Records a line of the call. `forWendell` false: the agent did not get it, so it stays for `takeOverheard`.
    */
   readonly heard: (call: Call, line: Line, forWendell: boolean) => Effect.Effect<void>
+  /** Records that speech recognition could not transcribe what `speaker` said. The agent learns it with `takeOverheard`. */
+  readonly missed: (call: Call, speaker: string) => Effect.Effect<void>
   /** The last lines of the call, by people and by Wendell, as "name: text", for the decision model. */
   readonly lines: (call: Call) => Effect.Effect<ReadonlyArray<string>>
   /** The lines since the last call that the agent did not get, as a `<call_context>` block. Empty when there are none. */
@@ -127,6 +129,7 @@ const off: Interface = {
   people: () => Effect.succeed([]),
   say: () => Effect.succeed(false),
   heard: () => Effect.void,
+  missed: () => Effect.void,
   lines: () => Effect.succeed([]),
   takeOverheard: () => Effect.succeed([]),
   attentive: () => Effect.succeed(false),
@@ -298,6 +301,13 @@ const make = Effect.gen(function* () {
     }))
   })
 
+  const missed = Effect.fn("Calls.missed")(function* (call: Call, speaker: string) {
+    yield* update(call.guildId, (state) => ({
+      ...state,
+      overheard: [...state.overheard, `${escape(speaker)} said something that speech recognition could not transcribe.`].slice(-CALL_LINES),
+    }))
+  })
+
   const lines = (call: Call) =>
     stateOf(call.guildId).pipe(Effect.map(Option.match({ onNone: () => [], onSome: (state) => state.lines })))
 
@@ -414,23 +424,34 @@ const make = Effect.gen(function* () {
     return yield* hearing(call)
   })
 
+  // The probe runs in the layer's scope, so a caller that stops waiting does not cancel it.
   // A second caller waits for the check that is running, so a join does not transcribe twice.
   const checkHearing = Effect.fn("Calls.checkHearing")(function* (call: Call) {
     const pending = yield* Deferred.make<Hearing>()
 
-    const running = yield* Ref.modify(checks, (current) => {
-      const found = HashMap.get(current, call.guildId)
+    const awaited = yield* Effect.uninterruptibleMask((restore) =>
+      Ref.modify(checks, (current) => {
+        const found = HashMap.get(current, call.guildId)
 
-      return [found, Option.isSome(found) ? current : HashMap.set(current, call.guildId, pending)] as const
-    })
-
-    if (Option.isSome(running)) return yield* Deferred.await(running.value)
-
-    return yield* probe(call).pipe(
-      Effect.onExit((exit) =>
-        Deferred.done(pending, exit).pipe(Effect.andThen(Ref.update(checks, HashMap.remove(call.guildId)))),
+        return [found, Option.isSome(found) ? current : HashMap.set(current, call.guildId, pending)] as const
+      }).pipe(
+        Effect.flatMap((running) =>
+          Option.match(running, {
+            onSome: (check) => Effect.succeed(check),
+            onNone: () =>
+              restore(probe(call)).pipe(
+                Effect.onExit((exit) =>
+                  Deferred.done(pending, exit).pipe(Effect.andThen(Ref.update(checks, HashMap.remove(call.guildId)))),
+                ),
+                Effect.forkIn(scope),
+                Effect.as(pending),
+              ),
+          }),
+        ),
       ),
     )
+
+    return yield* Deferred.await(awaited)
   })
 
   const takeInterrupted = (call: Call) =>
@@ -533,6 +554,7 @@ const make = Effect.gen(function* () {
     people,
     say,
     heard,
+    missed,
     lines,
     takeOverheard,
     attentive,
